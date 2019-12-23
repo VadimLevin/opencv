@@ -34,44 +34,78 @@ def get_conversion_error_msg(value, expected, actual):
 def get_no_exception_msg(value):
     return 'Exception is not risen for {} of type {}'.format(value, type(value).__name__)
 
+
 class Bindings(NewOpenCVTests):
 
     def test_inheritance(self):
         bm = cv.StereoBM_create()
-        bm.getPreFilterCap()  # from StereoBM
-        bm.getBlockSize()  # from SteroMatcher
+        self.assertTrue(hasattr(bm, 'getPreFilterCap'),
+                        msg="getPreFilterCap function from StereoBM is missing")
+        self.assertTrue(hasattr(bm, 'getBlockSize'),
+                        msg='getBlockSize function inherited from StereoMatcher is missing '
+                        'in StereoBM class instance')
 
         boost = cv.ml.Boost_create()
-        boost.getBoostType()  # from ml::Boost
-        boost.getMaxDepth()  # from ml::DTrees
-        boost.isClassifier()  # from ml::StatModel
+        self.assertTrue(hasattr(boost, 'getBoostType'),
+                        msg='getBoostType function from ml::Boost is missing')
+        self.assertTrue(hasattr(boost, 'getMaxDepth'),
+                        msg='getMaxDepth function inherited from ml::DTrees is missing in '
+                        'ml::Boost class instance')
+        self.assertTrue(hasattr(boost, 'isClassifier'),
+                        msg='isClassifier function inherited from ml::StatModel is missing in '
+                        'ml::Boost class instance')
 
     def test_redirectError(self):
-        try:
-            cv.imshow("", None)  # This causes an assert
-            self.assertEqual("Dead code", 0)
-        except cv.error as _e:
-            pass
+        with self.assertRaises((cv.error, ), msg='Assertion error is not risen'):
+            cv.imshow('', None)
 
-        handler_called = [False]
+        handler_called = [False, ]
 
         def test_error_handler(status, func_name, err_msg, file_name, line):
             handler_called[0] = True
 
         cv.redirectError(test_error_handler)
-        try:
-            cv.imshow("", None)  # This causes an assert
-            self.assertEqual("Dead code", 0)
-        except cv.error as _e:
-            self.assertEqual(handler_called[0], True)
-            pass
+        with self.assertRaises((cv.error, ), msg='Assertion error is not risen'):
+            cv.imshow('', None)
 
+        self.assertTrue(handler_called[0], msg='Handler is not called')
+
+        handler_called[0] = False
         cv.redirectError(None)
-        try:
+
+        with self.assertRaises((cv.error, ), msg='Assertion error is not risen'):
             cv.imshow("", None)  # This causes an assert
-            self.assertEqual("Dead code", 0)
-        except cv.error as _e:
-            pass
+
+        self.assertFalse(handler_called[0], msg='Handler was cleared, but call performed')
+
+        with self.assertRaises((TypeError, ), msg='Noncallable can be set as error handler'):
+            class NonCallable:
+                pass
+
+            cv.redirectError(NonCallable())
+
+    def test_exception(self):
+        with self.assertRaises(cv.error, msg='CV module exception is not risen') as cm:
+            cv.utils.raiseException()
+
+        cv_error = cm.exception
+        self.assertTrue(isinstance(cv_error, Exception),
+                        msg='cv.error is not inherited from the base Exception')
+        for attribute in ('file', 'func', 'line', 'code', 'msg', 'err'):
+            self.assertTrue(hasattr(cv_error, attribute),
+                            msg='cv.error does not have a required attribute: "{}"'.format(
+                                attribute
+                            ))
+
+        self.assertTrue(cv_error.file.endswith('bindings_utils.hpp'),
+                        msg='cv.error has wrong file name: {} instead of {}'.format(
+                            cv_error.file, 'bindings_utils.hpp'
+                        ))
+        self.assertEqual(cv_error.func, 'raiseException', msg='cv.error has wrong function name')
+        self.assertGreater(cv_error.line, 0, msg='cv.error should be greater than 0')
+        self.assertEqual(cv_error.code, cv.Error.StsOk, msg='cv.error has wrong error code')
+        self.assertEqual(cv_error.err, 'Test: Exception message',
+                         msg='cv.error has wrong exception message')
 
 
 class Arguments(NewOpenCVTests):
@@ -200,7 +234,7 @@ class Arguments(NewOpenCVTests):
                                 np.double(45), 's', 'str', np.array([1, 2]), (1,), [1, 2],
                                 np.float64(6), complex(1, 1), complex(imag=2), complex(1.1),
                                 -1, min_long, np.int8(-35)):
-            with self.assertRaises((TypeError, OverflowError),
+            with self.assertRaises((TypeError, OverflowError, ValueError),
                                    msg=get_no_exception_msg(not_convertible)):
                 _ = cv.utils.dumpSizeT(not_convertible)
 
@@ -251,7 +285,7 @@ class Arguments(NewOpenCVTests):
         for not_convertible in ('s', 'str', (12,), [1, 2], np.array([1, 2], dtype=np.float),
                                 np.array([1, 2], dtype=np.double), complex(1, 1), complex(imag=2),
                                 complex(1.1)):
-            with self.assertRaises((TypeError), msg=get_no_exception_msg(not_convertible)):
+            with self.assertRaises((TypeError, ), msg=get_no_exception_msg(not_convertible)):
                 _ = cv.utils.dumpFloat(not_convertible)
 
     def test_parse_to_float_not_convertible_extra(self):
@@ -325,11 +359,10 @@ class SamplesFindFile(NewOpenCVTests):
         self.assertEqual(res, '')
 
     def test_MissingFileException(self):
-        try:
+        with self.assertRaises(cv.error,  msg='MissingFileException is not risen') as cm:
             _res = cv.samples.findFile('non_existed.file', True)
-            self.assertEqual("Dead code", 0)
-        except cv.error as _e:
-            pass
+
+        self.assertEqual(cm.exception.code, cv.Error.StsError, 'Missing file')
 
 
 if __name__ == '__main__':

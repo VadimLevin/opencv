@@ -21,7 +21,10 @@ pass_by_val_types = ["Point*", "Point2f*", "Rect*", "String*", "double*", "float
 gen_template_check_self = Template("""
     ${cname} * self1 = 0;
     if (!pyopencv_${name}_getp(self, self1))
-        return failmsgp("Incorrect type of self (must be '${name}' or its derivative)");
+    {
+        pycv::raiseTypeError("Incorrect type of self (must be '${name}' or its derivative)");
+        return CV_NULL_PTR;
+    }
     ${pname} _self_ = ${cvt}(self1);
 """)
 gen_template_call_constructor_prelude = Template("""new (&(self->v)) Ptr<$cname>(); // init Ptr with placement new
@@ -33,7 +36,7 @@ gen_template_simple_call_constructor_prelude = Template("""if(self) """)
 
 gen_template_simple_call_constructor = Template("""new (&(self->v)) ${cname}${args}""")
 
-gen_template_parse_args = Template("""const char* keywords[] = { $kw_list, NULL };
+gen_template_parse_args = Template("""const char* keywords[] = { $kw_list, CV_NULL_PTR };
     if( PyArg_ParseTupleAndKeywords(args, kw, "$fmtspec", (char**)keywords, $parse_arglist)$code_cvt )""")
 
 gen_template_func_body = Template("""$code_decl
@@ -75,7 +78,7 @@ struct PyOpenCV_Converter< ${cname} >
             return true;
         }
         ${mappable_code}
-        failmsg("Expected ${cname} for argument '%s'", info.name);
+        pycv::raiseTypeError("Expected ${cname} for argument '%s'", info.name);
         return false;
     }
 };
@@ -109,13 +112,13 @@ ${methods_code}
 
 static PyGetSetDef pyopencv_${name}_getseters[] =
 {${getset_inits}
-    {NULL}  /* Sentinel */
+    {CV_NULL_PTR}  /* Sentinel */
 };
 
 static PyMethodDef pyopencv_${name}_methods[] =
 {
 ${methods_inits}
-    {NULL,          NULL}
+    {CV_NULL_PTR,          CV_NULL_PTR}
 };
 """)
 
@@ -132,7 +135,10 @@ static PyObject* pyopencv_${name}_get_${member}(pyopencv_${name}_t* p, void *clo
 {
     $cname* _self_ = dynamic_cast<$cname*>(p->v.get());
     if (!_self_)
-        return failmsgp("Incorrect type of object (must be '${name}' or its derivative)");
+    {
+        pycv::raiseTypeError("Incorrect type of object (must be '${name}' or its derivative)");
+        return CV_NULL_PTR;
+    }
     return pyopencv_from(_self_${access}${member});
 }
 """)
@@ -160,7 +166,7 @@ static int pyopencv_${name}_set_${member}(pyopencv_${name}_t* p, PyObject *value
     $cname* _self_ = dynamic_cast<$cname*>(p->v.get());
     if (!_self_)
     {
-        failmsgp("Incorrect type of object (must be '${name}' or its derivative)");
+        pycv::raiseTypeError("Incorrect type of object (must be '${name}' or its derivative)");
         return -1;
     }
     return pyopencv_to(value, _self_${access}${member}, ArgInfo("value", false)) ? 0 : -1;
@@ -169,10 +175,10 @@ static int pyopencv_${name}_set_${member}(pyopencv_${name}_t* p, PyObject *value
 
 
 gen_template_prop_init = Template("""
-    {(char*)"${member}", (getter)pyopencv_${name}_get_${member}, NULL, (char*)"${member}", NULL},""")
+    {(char*)"${member}", (getter)pyopencv_${name}_get_${member}, CV_NULL_PTR, (char*)"${member}", CV_NULL_PTR},""")
 
 gen_template_rw_prop_init = Template("""
-    {(char*)"${member}", (getter)pyopencv_${name}_get_${member}, (setter)pyopencv_${name}_set_${member}, (char*)"${member}", NULL},""")
+    {(char*)"${member}", (getter)pyopencv_${name}_get_${member}, (setter)pyopencv_${name}_set_${member}, (char*)"${member}", CV_NULL_PTR},""")
 
 class FormatStrings:
     string = 's'
@@ -652,7 +658,7 @@ class FuncInfo(object):
                 parse_name = a.name
                 if a.py_inputarg:
                     if arg_type_info.strict_conversion:
-                        code_decl += "    PyObject* pyobj_%s = NULL;\n" % (a.name,)
+                        code_decl += "    PyObject* pyobj_%s = CV_NULL_PTR;\n" % (a.name,)
                         parse_name = "pyobj_" + a.name
                         if a.tp == 'char':
                             code_cvt_list.append("convert_to_char(pyobj_%s, &%s, %s)" % (a.name, a.name, a.crepr()))
@@ -771,7 +777,7 @@ class FuncInfo(object):
             # try to execute each signature
             code += "    PyErr_Clear();\n\n".join(["    {\n" + v + "    }\n" for v in all_code_variants])
 
-        def_ret = "NULL"
+        def_ret = "CV_NULL_PTR"
         if self.isconstructor:
             def_ret = "-1"
         code += "\n    return %s;\n}\n\n" % def_ret
@@ -957,7 +963,7 @@ class PythonWrapperGenerator(object):
             if func.isconstructor:
                 continue
             self.code_ns_reg.write(func.get_tab_entry())
-        self.code_ns_reg.write('    {NULL, NULL}\n};\n\n')
+        self.code_ns_reg.write('    {CV_NULL_PTR, CV_NULL_PTR}\n};\n\n')
 
         self.code_ns_reg.write('static ConstDef consts_%s[] = {\n'%wname)
         for name, cname in sorted(ns.consts.items()):
@@ -965,7 +971,7 @@ class PythonWrapperGenerator(object):
             compat_name = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).upper()
             if name != compat_name:
                 self.code_ns_reg.write('    {"%s", static_cast<long>(%s)},\n'%(compat_name, cname))
-        self.code_ns_reg.write('    {NULL, 0}\n};\n\n')
+        self.code_ns_reg.write('    {CV_NULL_PTR, 0}\n};\n\n')
 
     def gen_enum_reg(self, enum_name):
         name_seg = enum_name.split(".")

@@ -81,6 +81,12 @@ AsyncArray testAsyncException()
     return p.getArrayResult();
 }
 
+CV_WRAP static inline
+void raiseException()
+{
+    CV_Error(Error::StsOk, "Test: Exception message");
+}
+
 //! @}
 }} // namespace
 

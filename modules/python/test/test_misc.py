@@ -347,6 +347,62 @@ class Arguments(NewOpenCVTests):
             with self.assertRaises((TypeError), msg=get_no_exception_msg(not_convertible)):
                 _ = cv.utils.dumpCString(not_convertible)
 
+    def test_parse_to_vector_int_convertible(self):
+        def to_string(arg):
+            return '({})'.format(' '.join(str(a) for a in arg))
+
+        try_to_convert = partial(self._try_to_convert, cv.utils.dumpVectorInt)
+        min_int, max_int = get_limits(ctypes.c_int)
+
+        for convertible in ((1, 2, 3), (), [4, 5, 6], np.array([1, 2]),
+                            np.array([4, 5], dtype=np.int8), np.array((-12, 15), dtype=np.int16),
+                            np.array((123, -34), dtype=np.int64), np.array((13, 4), dtype=np.int32),
+                            np.array((4, 5, 6), dtype=np.uint8), [min_int, 0, max_int],
+                            np.array((33, 356), dtype=np.uint16)):
+            expected = 'vector<int>: ' + to_string(convertible)
+            actual = try_to_convert(convertible)
+            self.assertEqual(expected, actual,
+                             msg=get_conversion_error_msg(convertible, expected, actual))
+
+    @unittest.skip('does not work properly')
+    def test_parse_to_vector_int_not_convertible(self):
+        min_int64, max_int64 = get_limits(ctypes.c_int64)
+        for not_convertible in ([3, '2.3'], [1.6, 3.93], np.array([1.3, 4.]), 1, (False, True),
+                                np.array([min_int64, 0]), [1, 2, max_int64]):
+            with self.assertRaises((TypeError, ValueError, OverflowError),
+                                   msg=get_no_exception_msg(not_convertible)):
+                _ = cv.utils.dumpVectorInt(not_convertible)
+
+    def test_parse_to_size_convertible(self):
+        try_to_convert = partial(self._try_to_convert, cv.utils.dumpSize)
+        for convertible in ((1, 2), ):
+            expected = 'size(width={}, height={})'.format(convertible[0], convertible[1])
+            actual = try_to_convert(convertible)
+            self.assertEqual(expected, actual,
+                             msg=get_conversion_error_msg(convertible, expected, actual))
+
+    @unittest.skip('does not work properly')
+    def test_parse_to_size_convertible_extra(self):
+        try_to_convert = partial(self._try_to_convert, cv.utils.dumpSize)
+        for convertible in ([-3, 4], np.array((1, 2))):
+            expected = 'size(width={}, height={})'.format(convertible[0], convertible[1])
+            actual = try_to_convert(convertible)
+            self.assertEqual(expected, actual,
+                             msg=get_conversion_error_msg(convertible, expected, actual))
+
+    def test_parse_to_size_not_convertible(self):
+        for not_convertible in ((), (1.4, 5.6), (1, 2, 3), ):
+            with self.assertRaises((TypeError, OverflowError, ValueError),
+                                   msg=get_no_exception_msg(not_convertible)):
+                _ = cv.utils.dumpSize(not_convertible)
+
+    @unittest.skip('does not work properly')
+    def test_parse_to_size_not_convertible_extra(self):
+        for not_convertible in (np.array([44, 444, 54]), [1, 2, 3],):
+            with self.assertRaises((TypeError, OverflowError, ValueError),
+                                   msg=get_no_exception_msg(not_convertible)):
+                _ = cv.utils.dumpsSize(not_convertible)
+
 
 class SamplesFindFile(NewOpenCVTests):
 

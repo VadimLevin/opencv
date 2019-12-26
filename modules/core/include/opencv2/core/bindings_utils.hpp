@@ -58,6 +58,29 @@ String dumpCString(const char* argument)
     return cv::format("String: %s", argument);
 }
 
+
+CV_WRAP static inline
+String dumpVectorInt(const std::vector<int>& argument)
+{
+    std::ostringstream oss("vector<int>: (", std::ios::ate);
+    const size_t size = argument.size();
+    if (size > 0) {
+        for (size_t i = 0; i < size - 1; ++i)
+        {
+            oss << argument[i] << " ";
+        }
+        oss << argument.back();
+    }
+    oss << ')';
+    return oss.str();
+}
+
+CV_WRAP static inline
+String dumpSize(const cv::Size& argument)
+{
+    return cv::format("Size(width=%d, height=%d)", argument.width, argument.height);
+}
+
 CV_WRAP static inline
 AsyncArray testAsyncArray(InputArray argument)
 {

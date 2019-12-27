@@ -10,20 +10,25 @@ from hdr_parser import CppHeaderParser
 
 from tests_common import NewOpenCVTests, unittest
 
-
 format_to_modifiers = {
-    '{type} {name}' : [],
-    'const {type} {name}' : ['/C'],
-    '{type} const {name}' : ['/C'],
+    '{type} {name}': [],
+    'const {type} {name}': ['/C'],
+    '{type} const {name}': ['/C'],
     '{type}& {name}': ['/Ref'],
     '{type} & {name}': ['/Ref'],
     '{type} &{name}': ['/Ref'],
-    'const {type}& {name}' : ['/C', '/Ref'],
-    'const {type} & {name}' : ['/C', '/Ref'],
-    'const {type} &{name}' : ['/C', '/Ref'],
-    '{type} const& {name}' : ['/C', '/Ref'],
-    '{type} const & {name}' : ['/C', '/Ref'],
-    '{type} const &{name}' : ['/C', '/Ref'],
+    'const {type}& {name}': ['/C', '/Ref'],
+    'const {type} & {name}': ['/C', '/Ref'],
+    'const {type} &{name}': ['/C', '/Ref'],
+    '{type} const& {name}': ['/C', '/Ref'],
+    '{type} const & {name}': ['/C', '/Ref'],
+    '{type} const &{name}': ['/C', '/Ref'],
+    'CV_OUT {type}& {name}': ['/Ref', '/O'],
+    'CV_OUT {type} & {name}': ['/Ref', '/O'],
+    'CV_OUT {type} &{name}': ['/Ref', '/O'],
+    'CV_IN_OUT {type}& {name}': ['/Ref', '/IO'],
+    'CV_IN_OUT {type} &{name}': ['/Ref', '/IO'],
+    'CV_IN_OUT {type} & {name}': ['/Ref', '/IO']
 }
 
 
@@ -173,16 +178,13 @@ class CVHeaderParserTests(NewOpenCVTests):
             parsed = parser.parse_class_decl(plain)
             self.assertTupleEqual(parsed, ('TestClass', [], []))
 
-            with_base = 'class {0} TestClass : public Base'.format(
-                export_macro)
+            with_base = 'class {0} TestClass : public Base'.format(export_macro)
             parsed = parser.parse_class_decl(with_base)
             self.assertTupleEqual(parsed, ('TestClass', ['Base'], []))
 
-            with_multiple_bases = 'class {0} TestClass : public Base1, ' \
-                'Base2'.format(export_macro)
+            with_multiple_bases = 'class {0} TestClass : public Base1, Base2'.format(export_macro)
             parsed = parser.parse_class_decl(with_multiple_bases)
-            self.assertTupleEqual(
-                parsed, ('TestClass', ['Base1', 'Base2'], []))
+            self.assertTupleEqual(parsed, ('TestClass', ['Base1', 'Base2'], []))
 
     def test_parse_class_decl_map(self):
         parser = CppHeaderParser()
@@ -195,11 +197,9 @@ class CVHeaderParserTests(NewOpenCVTests):
         parsed = parser.parse_class_decl(with_base)
         self.assertTupleEqual(parsed, ('TestClass', ['Base'], ['/Map']))
 
-        with_multiple_bases = 'class CV_EXPORTS_W_MAP TestClass : public '\
-            'Base1, Base2'
+        with_multiple_bases = 'class CV_EXPORTS_W_MAP TestClass : public Base1, Base2'
         parsed = parser.parse_class_decl(with_multiple_bases)
-        self.assertTupleEqual(
-            parsed, ('TestClass', ['Base1', 'Base2'], ['/Map']))
+        self.assertTupleEqual(parsed, ('TestClass', ['Base1', 'Base2'], ['/Map']))
 
     def test_parse_class_decl_simple(self):
         parser = CppHeaderParser()
@@ -212,11 +212,9 @@ class CVHeaderParserTests(NewOpenCVTests):
         parsed = parser.parse_class_decl(with_base)
         self.assertTupleEqual(parsed, ('TestClass', ['Base'], ['/Simple']))
 
-        with_multiple_bases = 'class CV_EXPORTS_W_SIMPLE TestClass : public '\
-            'Base1, Base2'
+        with_multiple_bases = 'class CV_EXPORTS_W_SIMPLE TestClass : public Base1, Base2'
         parsed = parser.parse_class_decl(with_multiple_bases)
-        self.assertTupleEqual(
-            parsed, ('TestClass', ['Base1', 'Base2'], ['/Simple']))
+        self.assertTupleEqual(parsed, ('TestClass', ['Base1', 'Base2'], ['/Simple']))
 
     def test_parse_class_decl_alias_export(self):
         parser = CppHeaderParser()
@@ -229,11 +227,9 @@ class CVHeaderParserTests(NewOpenCVTests):
         parsed = parser.parse_class_decl(with_base)
         self.assertTupleEqual(parsed, ('TestClass', ['Base'], ['=WithBase']))
 
-        with_multiple_bases = 'class CV_EXPORTS_AS(MultiBase) TestClass : ' \
-            'public Base1, Base2'
+        with_multiple_bases = 'class CV_EXPORTS_AS(MultiBase) TestClass : public Base1, Base2'
         parsed = parser.parse_class_decl(with_multiple_bases)
-        self.assertTupleEqual(
-            parsed, ('TestClass', ['Base1', 'Base2'], ['=MultiBase']))
+        self.assertTupleEqual(parsed, ('TestClass', ['Base1', 'Base2'], ['=MultiBase']))
 
     def test_parse_stmt_namespace(self):
         parser = CppHeaderParser()
@@ -266,9 +262,19 @@ class CVHeaderParserTests(NewOpenCVTests):
         parsed = parser.parse_stmt(enum_class, '{')
         self.assertTupleEqual(parsed, ('enum class', 'TestEnum', True, None))
 
-        # scoped_enum_with_type = 'enum class TestEnum : int'
-        # parsed = parser.parse_stmt(scoped_enum_with_type, '{'),
-        # self.assertTupleEqual(parsed, ('enum class', 'TestEnum', True, None))
+    @unittest.skip('unsupported')
+    def test_parse_stmt_scoped_enum_with_type_declaration(self):
+        parser = CppHeaderParser()
+        parser.wrap_mode = True
+        parser.block_stack = [['file', 'file_name', True, True, None],
+                              ['namespace', 'cv', True, True, None]]
+        scoped_enum_with_type = 'enum class TestEnum : int'
+        parsed = parser.parse_stmt(scoped_enum_with_type, '{'),
+        self.assertTupleEqual(parsed, ('enum class', 'TestEnum', True, None))
+
+        scoped_enum_with_type = 'enum struct TestEnum : int'
+        parsed = parser.parse_stmt(scoped_enum_with_type, '{'),
+        self.assertTupleEqual(parsed, ('enum struct', 'TestEnum', True, None))
 
     def test_parse_arg_nameless_args(self):
         parser = CppHeaderParser()
@@ -283,46 +289,38 @@ class CVHeaderParserTests(NewOpenCVTests):
             'std::vector<double>': 'vector_double',
             'std::pair<int, double>': 'pair_int_and_double',
             '::test': '_test',
-            '::test<std::Pair<int, double>>': '_test_Pair_int_and_double'
+            '::test<std::pair<int, double>>': '_test_pair_int_and_double'
         }
         indices = (0, 3, 2)
         for atype, fmt_str, index in product(types, format_to_modifiers, indices):
             str_to_parse = fmt_str.format(type=atype, name='')
-            self.assertTupleEqual(
-                parser.parse_arg(str_to_parse, index),
-                (types[atype], 'arg{0}'.format(index),
-                 format_to_modifiers[fmt_str], index + 1),
-                msg="Can't parse {0}".format(str_to_parse)
-            )
+            result = parser.parse_arg(str_to_parse, index)
+            self.assertEqual(result[0], types[atype],
+                             msg='Parsed wrong type from "{}"'.format(str_to_parse))
+            self.assertEqual(result[1], 'arg{0}'.format(index),
+                             msg='Parsed wrong name from "{}"'.format(str_to_parse))
+            self.assertEqual(sorted(result[2]), sorted(format_to_modifiers[fmt_str]),
+                             msg='Wrong modifiers assigned "{}"'.format(str_to_parse))
+            self.assertEqual(result[3], index + 1, msg='Has wrong index "{}"'.format(str_to_parse))
 
-    @unittest.expectedFailure
     def test_parse_arg_custom_namespace(self):
         parser = CppHeaderParser()
 
         types = {
-            'detail::Type': 'Type',
-            '::test<detail::Pair<int, double>>': '_test_Pair_int_and_double'
-        }
-        format_to_modifiers = {
-            '{type}': [],
-            'const {type}': ['/C'],
-            '{type} const': ['/C'],
-            '{type}&': ['/Ref'],
-            '{type} &': ['/Ref'],
-            'const {type}&': ['/C', '/Ref'],
-            'const {type} &': ['/C', '/Ref'],
-            '{type} const&': ['/C', '/Ref'],
-            '{type} const &': ['/C', '/Ref']
+            'detail::Type': 'detail_Type',
+            '::test<detail::pair<int, double>>': '_test_detail_pair_int_and_double'
         }
         indices = (0, 3, 2)
         for atype, fmt_str, index in product(types, format_to_modifiers, indices):
             str_to_parse = fmt_str.format(type=atype, name='')
-            self.assertTupleEqual(
-                parser.parse_arg(str_to_parse, index),
-                (types[atype], 'arg{0}'.format(index),
-                 format_to_modifiers[fmt_str], index + 1),
-                msg="Can't parse {0}".format(str_to_parse)
-            )
+            result = parser.parse_arg(str_to_parse, index)
+            self.assertEqual(result[0], types[atype],
+                             msg='Parsed wrong type from "{}"'.format(str_to_parse))
+            self.assertEqual(result[1], 'arg{0}'.format(index),
+                             msg='Parsed wrong name from "{}"'.format(str_to_parse))
+            self.assertEqual(sorted(result[2]), sorted(format_to_modifiers[fmt_str]),
+                             msg='Wrong modifiers assigned "{}"'.format(str_to_parse))
+            self.assertEqual(result[3], index + 1, msg='Has wrong index "{}"'.format(str_to_parse))
 
     def test_parse_arg_named_args(self):
         parser = CppHeaderParser()
@@ -337,17 +335,21 @@ class CVHeaderParserTests(NewOpenCVTests):
             'std::vector<double>': 'vector_double',
             'std::pair<int, double>': 'pair_int_and_double',
             '::test': '_test',
-            '::test<std::Pair<int, double>>': '_test_Pair_int_and_double'
+            '::test<std::pair<int, double>>': '_test_pair_int_and_double',
+            'std::map<std::pair<int, double>, vector<int> >': 'map_pair_int_and_double_and_vector_int',
         }
         indices = (0, 3, 2)
         for atype, fmt_str, index in product(types, format_to_modifiers, indices):
             str_to_parse = fmt_str.format(type=atype, name='argument')
-            self.assertTupleEqual(
-                parser.parse_arg(str_to_parse, index),
-                (types[atype], 'argument',
-                 format_to_modifiers[fmt_str], index),
-                msg="Can't parse {0}".format(str_to_parse)
-            )
+            result = parser.parse_arg(str_to_parse, index)
+            self.assertEqual(result[0], types[atype],
+                             msg='Parsed wrong type from "{}"'.format(str_to_parse))
+            self.assertEqual(result[1], 'argument',
+                             msg='Parsed wrong name from "{}"'.format(str_to_parse))
+            self.assertEqual(sorted(result[2]), sorted(format_to_modifiers[fmt_str]),
+                             msg='Wrong modifiers assigned "{}"'.format(str_to_parse))
+            self.assertEqual(result[3], index, msg='Has wrong index "{}"'.format(str_to_parse))
+
 
 if __name__ == '__main__':
     NewOpenCVTests.bootstrap()

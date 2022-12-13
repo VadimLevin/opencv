@@ -1,16 +1,29 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
+from typing import List, Sequence, Tuple, Union
 import hdr_parser, sys, re
 from string import Template
 from collections import namedtuple, defaultdict, OrderedDict
 from itertools import chain
 
+
 if sys.version_info[0] >= 3:
     from io import StringIO
+    from typing import Dict
 else:
     from cStringIO import StringIO
     from itertools import ifilter as filter
+
+from typing_stubs_generation import (
+    replace_template_parameters_with_placeholders,
+    get_template_instantiation_type,
+    generate_typing_stubs,
+    NamespaceNode,
+    EnumerationNode,
+    SymbolName,
+    find_scope
+)
 
 import textwrap
 
@@ -33,7 +46,6 @@ else:
             for line in text.splitlines(True):
                 yield prefix + line if predicate(line) else line
         return ''.join(prefixed_lines())
-
 
 forbidden_arg_types = ["void*"]
 
@@ -596,47 +608,6 @@ def is_template_class_instantiation(typename):
             "Wrong template class instantiation: {}. '>' is missing".format(typename)
         return True
     return False
-
-
-def get_template_instantiation_type(typename):
-    # std::vector<Point<int>> -> Point<int>
-    # std::vector<uchar> -> uchar
-    return (typename.split("<", 1)[-1])[:-1]
-
-
-def replace_template_parameters_with_placeholders(string):
-    """ Replaces template parameters with `format` placeholders for all template instantiations in provided string.
-    Only outermost template parameters are replaced.
-
-    >>> replace_template_parameters_with_placeholders("cv::util::variant<cv::GRunArgs, cv::GOptRunArgs>")
-    ('cv::util::variant<{}>', ('cv::GRunArgs, cv::GOptRunArgs',))
-    >>> replace_template_parameters_with_placeholders("vector<Point<int>>")
-    ('vector<{}>', ('Point<int>',))
-    >>> replace_template_parameters_with_placeholders("vector<Point<int>>, vector<float>")
-    ('vector<{}>, vector<{}>', ('Point<int>', 'float'))
-    >>> replace_template_parameters_with_placeholders("string without templates")
-    ('string without templates', ())
-    """
-    template_brackets_indices = []
-    template_instantiations_count = 0
-    template_start_index = 0
-    for i, c in enumerate(string):
-        if c == "<":
-            template_instantiations_count += 1
-            if template_instantiations_count == 1:
-                template_start_index = i + 1  # + 1 - because left bound is included in substring range
-        elif c == ">":
-            template_instantiations_count -= 1
-            assert template_instantiations_count >= 0, "Provided string is ill-formed. There are more '>' than '<'."
-            if template_instantiations_count == 0:
-                template_brackets_indices.append((template_start_index, i))
-    assert template_instantiations_count == 0, "Provided string is ill-formed. There are more '<' than '>'."
-    template_args = []
-    # Reversed loop is required to preserve template start/end indices
-    for i, j in reversed(template_brackets_indices):
-        template_args.insert(0, string[i:j])
-        string = string[:i] + "{}" + string[j:]
-    return string, tuple(template_args)
 
 
 def convert_template_arguments_to_pytypes_arguments(template_args_str, codegen):
@@ -1296,6 +1267,9 @@ class Namespace(object):
         self.consts = {}
 
 
+
+
+
 class PythonWrapperGenerator(object):
     def __init__(self):
         self.clear()
@@ -1305,6 +1279,8 @@ class PythonWrapperGenerator(object):
         self.namespaces = {}
         self.consts = {}
         self.enums = {}
+        self.cv_root = NamespaceNode("cv")
+        self.exported_enums: Dict[SymbolName, EnumerationNode] = {}
         self.code_stubs = StringIO()
         self.code_include = StringIO()
         self.code_enums = StringIO()
@@ -1351,20 +1327,14 @@ class PythonWrapperGenerator(object):
         # library import
         return original_scope_name
 
-    def split_decl_name(self, name):
-        chunks = name.split('.')
-        namespace = chunks[:-1]
-        classes = []
-        while namespace and '.'.join(namespace) not in self.parser.namespaces:
-            classes.insert(0, namespace.pop())
-        return namespace, classes, chunks[-1]
-
+    def split_decl_name(self, name: str) -> SymbolName:
+        return SymbolName.parse(name, self.parser.namespaces)
 
     def add_const(self, name, decl):
         cname = name.replace('.','::')
         namespace, classes, name = self.split_decl_name(name)
         namespace = '.'.join(namespace)
-        name = '_'.join(classes+[name])
+        name = '_'.join(chain(classes, (name, )))
         ns = self.namespaces.setdefault(namespace, Namespace())
         if name in ns.consts:
             print("Generator error: constant %s (cname=%s) already exists" \
@@ -1377,7 +1347,11 @@ class PythonWrapperGenerator(object):
         py_signatures.append(dict(name=py_name, value=value))
         #print(cname + ' => ' + str(py_name) + ' (value=' + value + ')')
 
-    def add_enum(self, name, decl):
+    def add_enum(self, name: str, decl):
+        enumeration_name = SymbolName.parse(name, self.parser.namespaces)
+        enumeration_node = EnumerationNode(enumeration_name.name)
+        self.exported_enums[enumeration_name] = enumeration_node
+
         wname = normalize_class_name(name)
         if wname.endswith("<unnamed>"):
             wname = None
@@ -1386,11 +1360,14 @@ class PythonWrapperGenerator(object):
         const_decls = decl[3]
         stub_enums = []
         for decl in const_decls:
+            enumeration_node.add_constant(name=decl[0].split(".")[-1],
+                                          value=decl[1])
+
             name = decl[0].replace("const ", "").strip()
             self.add_const(name, decl)
             # stub generation
             _, classes, name = self.split_decl_name(name)
-            name = '_'.join(classes + [name])
+            name = '_'.join(chain(classes, (name, )))
             stub_enums.append(name)
             self.code_stubs.write("{}: int\n".format(name))
         if wname:
@@ -1400,7 +1377,7 @@ class PythonWrapperGenerator(object):
 
     def add_func(self, decl):
         namespace, classes, barename = self.split_decl_name(decl[0])
-        cname = "::".join(namespace+classes+[barename])
+        cname = "::".join(chain(namespace, classes, (barename, )))
         name = barename
         classname = ''
         bareclassname = ''
@@ -1427,7 +1404,7 @@ class PythonWrapperGenerator(object):
                 return
 
         if isconstructor:
-            name = "_".join(classes[:-1]+[name])
+            name = "_".join(chain(classes[:-1], (name, )))
 
         if is_static:
             # Add it as a method to the class
@@ -1436,7 +1413,7 @@ class PythonWrapperGenerator(object):
             func.add_variant(decl, isphantom)
 
             # Add it as global function
-            g_name = "_".join(classes+[name])
+            g_name = "_".join(chain(classes, (name, )))
             w_classes = []
             for i in range(0, len(classes)):
                 classes_i = classes[:i+1]
@@ -1681,6 +1658,14 @@ class PythonWrapperGenerator(object):
         for name, constinfo in constlist:
             self.gen_const_reg(constinfo)
 
+        # All symbols are collected
+        for full_enum_name, enum_node in self.exported_enums.items():
+            if len(full_enum_name.classes) > 0:
+                # Skip for now
+                continue
+            scope = find_scope(self.cv_root, full_enum_name)
+            enum_node.parent = scope
+
         # That's it. Now save all the files
         self.save(output_path, "__init__.pyi", self.code_stubs)
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
@@ -1691,6 +1676,7 @@ class PythonWrapperGenerator(object):
         self.save(output_path, "pyopencv_generated_modules.h", self.code_ns_init)
         self.save(output_path, "pyopencv_generated_modules_content.h", self.code_ns_reg)
         self.save_json(output_path, "pyopencv_signatures.json", self.py_signatures)
+
 
 if __name__ == "__main__":
     srcfiles = hdr_parser.opencv_hdr_list

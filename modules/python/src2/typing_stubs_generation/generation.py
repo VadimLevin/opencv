@@ -122,12 +122,14 @@ def _generate_enumeration_stub(enumeration_node: EnumerationNode,
     for entry in enumeration_node.constants.values():
         _generate_constant_stub(entry, output_stream, indent)
     # Unnamed enumerations are skipped as definition
-    if enumeration_node.export_name == "<unnamed>":
+    if enumeration_node.export_name.endswith("<unnamed>"):
+        output_stream.write("\n")
         return
     output_stream.write(
         "{indent}{name} = int  # One of [{entries}]\n\n".format(
             name=enumeration_node.export_name,
-            entries=", ".join(enumeration_node.constants),
+            entries=", ".join(entry.export_name
+                              for entry in enumeration_node.constants.values()),
             indent=" " * indent
         )
     )

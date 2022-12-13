@@ -23,7 +23,7 @@ class ClassNode(ASTNode):
                  parent: Optional["ASTNode"] = None,
                  export_name: Optional[str] = None) -> None:
         super().__init__(name, parent, export_name)
-        self.bases = bases
+        self.bases = list(bases)
         self.modifiers: List[str] = list(modifiers)
         self.properties = properties
         self.__derived: List["weakref.ProxyType[ClassNode]"] = []
@@ -77,6 +77,10 @@ class ClassNode(ASTNode):
 
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
+
+    def add_base(self, base_class_node: "ClassNode"):
+        self.bases.append(weakref.proxy(base_class_node))
+        base_class_node.add_derived_class(self)
 
     def add_derived_class(self, derived_class_node: "ClassNode"):
         self.__derived.append(weakref.proxy(derived_class_node))

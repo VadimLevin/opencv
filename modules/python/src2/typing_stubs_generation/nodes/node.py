@@ -71,6 +71,9 @@ class ASTNode:
             "ASTNode.parent should be None or another ASTNode, " \
             "but got: {}".format(type(value))
 
+        if value is not None:
+            value.__check_child_before_add(type(self), self.name)
+
         # Detach from previous parent
         if self._parent is not None:
             self._parent._children[type(self)].pop(self.name)
@@ -95,8 +98,8 @@ class ASTNode:
     def full_export_name(self) -> str:
         return self._construct_full_name("export_name")
 
-    def _add_child(self, child_type: Type[ASTNodeSubtype], name: str,
-                   **kwargs) -> ASTNodeSubtype:
+    def __check_child_before_add(self, child_type: Type[ASTNodeSubtype],
+                                 name: str) -> None:
         assert len(self.children_types) > 0, \
             "Trying to add child node '{}::{}' to node '{}::{}' " \
             "that can't have children nodes".format(child_type.__name__, name,
@@ -117,6 +120,9 @@ class ASTNode:
                 )
             )
 
+    def _add_child(self, child_type: Type[ASTNodeSubtype], name: str,
+                   **kwargs) -> ASTNodeSubtype:
+        self.__check_child_before_add(child_type, name)
         return child_type(name, parent=self, **kwargs)
 
     def _find_child(self, child_type: Type[ASTNodeSubtype],

@@ -37,6 +37,7 @@ class ASTNode:
         self.export_name = name if export_name is None else export_name
         self._parent: Optional["ASTNode"] = None
         self.parent = parent
+        self.is_exported = True
         self._children: DefaultDict[NodeType, NameToNode] = defaultdict(dict)
 
     def __str__(self) -> str:

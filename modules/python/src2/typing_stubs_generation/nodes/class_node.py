@@ -17,14 +17,12 @@ class ClassProperty(NamedTuple):
 
 
 class ClassNode(ASTNode):
-    def __init__(self, name: str, bases: Tuple["weakref.ProxyType[ClassNode]", ...] = (),
-                 modifiers: Sequence[str] = (),
-                 properties: Tuple[ClassProperty, ...] = (),
-                 parent: Optional["ASTNode"] = None,
-                 export_name: Optional[str] = None) -> None:
+    def __init__(self, name: str, parent: Optional["ASTNode"] = None,
+                 export_name: Optional[str] = None,
+                 bases: Sequence["weakref.ProxyType[ClassNode]"] = (),
+                 properties: Sequence[ClassProperty] = ()) -> None:
         super().__init__(name, parent, export_name)
         self.bases = list(bases)
-        self.modifiers: List[str] = list(modifiers)
         self.properties = properties
         self.__derived: List["weakref.ProxyType[ClassNode]"] = []
         for base in self.bases:
@@ -62,11 +60,9 @@ class ClassNode(ASTNode):
         return self._children[ConstantNode]
 
     def add_class(self, name: str,
-                  bases: Tuple[weakref.ProxyType, ...] = (),
-                  modifiers: Sequence[str] = (),
-                  properties: Sequence[str] = ()) -> "ClassNode":
+                  bases: Sequence["weakref.ProxyType[ClassNode]"] = (),
+                  properties: Sequence[ClassProperty] = ()) -> "ClassNode":
         return self._add_child(ClassNode, name, bases=bases,
-                               modifiers=modifiers,
                                properties=properties)
 
     def add_function(self, name: str) -> FunctionNode:

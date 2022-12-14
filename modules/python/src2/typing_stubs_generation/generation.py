@@ -29,6 +29,16 @@ def generate_typing_stubs(root: NamespaceNode, output_root: Path):
     if len(imported_dependencies) > 0:
         output_stream.write("\n\n")
 
+    _generate_section_stub(StubSection("# Constants", ConstantNode), root,
+                           output_stream, 0)
+    # Special handling for enumerations...
+    # Generate all enums from the module level
+    _generate_section_stub(StubSection("# Enumerations", EnumerationNode), root,
+                           output_stream, 0)
+    # Collect all enums from class level and export them to module level
+    for class_node in root.classes.values():
+        _generate_enums_from_classes_tree(class_node, output_stream, indent=0)
+
     for section in STUB_SECTIONS:
         _generate_section_stub(section, root, output_stream, 0)
     (output_path / "__init__.pyi").write_text(output_stream.getvalue())
@@ -43,7 +53,7 @@ class StubSection(NamedTuple):
 
 STUB_SECTIONS = (
     StubSection("# Constants", ConstantNode),
-    StubSection("# Enumerations", EnumerationNode),
+    # StubSection("# Enumerations", EnumerationNode), # Skipped for now (special rules)
     StubSection("# Classes", ClassNode),
     StubSection("# Functions", FunctionNode)
 )
@@ -63,7 +73,7 @@ def _generate_section_stub(section: StubSection, node: ASTNode,
     output_stream.write(section.name)
     output_stream.write("\n")
     stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]
-    for child in children.values():
+    for child in filter(lambda c: c.is_exported, children.values()):
         stub_generator(child, output_stream, indent)
     output_stream.write("\n")
     return True
@@ -93,10 +103,12 @@ def _generate_class_stub(class_node: ClassNode,
             template = "{indent}{name}: {type}\n"
 
         output_stream.write(
-            template.format(indent=" " * indent,
+            template.format(indent=" " * (indent + 4),
                             name=property.name,
                             type=property.typename)
         )
+    if len(class_node.properties) > 0:
+        output_stream.write("\n")
 
     for section in STUB_SECTIONS:
         if _generate_section_stub(section, class_node,
@@ -143,6 +155,23 @@ def _generate_function_stub(function_node: FunctionNode,
             indent=" " * indent
         )
     )
+
+
+def _generate_enums_from_classes_tree(class_node: ClassNode,
+                                      output_stream: StringIO,
+                                      indent: int = 0,
+                                      class_name_prefix: str = ""):
+    class_name_prefix = class_node.export_name + "_" + class_name_prefix
+    for enum_node in class_node.enumerations.values():
+        # Prefix enumeration and its entries with class name
+        enum_node.export_name = class_name_prefix + enum_node.export_name
+        for entry_node in enum_node.constants.values():
+            entry_node.export_name = class_name_prefix + entry_node.export_name
+
+        _generate_enumeration_stub(enum_node, output_stream, indent)
+    for cls in class_node.classes.values():
+        _generate_enums_from_classes_tree(cls, output_stream, indent,
+                                          class_name_prefix)
 
 
 StubGenerator = Callable[[ASTNode, StringIO, int], None]

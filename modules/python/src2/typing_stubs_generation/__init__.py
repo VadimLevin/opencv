@@ -6,6 +6,7 @@ from .type_conversion_utils import (
 from .nodes import (
     NamespaceNode,
     ClassNode,
+    ClassProperty,
     EnumerationNode,
     FunctionNode,
     ConstantNode

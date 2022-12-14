@@ -4,7 +4,7 @@ import weakref
 
 from .node import ASTNode
 
-from .class_node import ClassNode
+from .class_node import ClassNode, ClassProperty
 from .function_node import FunctionNode
 from .enumeration_node import EnumerationNode
 from .constant_node import ConstantNode
@@ -47,11 +47,9 @@ class NamespaceNode(ASTNode):
         return self._add_child(NamespaceNode, name)
 
     def add_class(self, name: str,
-                  bases: Tuple[weakref.ProxyType, ...] = (),
-                  modifiers: Sequence[str] = (),
-                  properties: Sequence[str] = ()) -> "ClassNode":
+                  bases: Sequence["weakref.ProxyType[ClassNode]"] = (),
+                  properties: Sequence[ClassProperty] = ()) -> "ClassNode":
         return self._add_child(ClassNode, name, bases=bases,
-                               modifiers=modifiers,
                                properties=properties)
 
     def add_function(self, name: str) -> FunctionNode:

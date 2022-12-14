@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-from typing import List, Sequence, Tuple, Union
+import os
 import hdr_parser, sys, re
 from string import Template
 from collections import namedtuple, defaultdict, OrderedDict
@@ -19,10 +19,12 @@ from typing_stubs_generation import (
     replace_template_parameters_with_placeholders,
     get_template_instantiation_type,
     generate_typing_stubs,
+    ClassProperty,
     NamespaceNode,
     EnumerationNode,
     SymbolName,
-    find_scope
+    find_scope,
+    ScopeNotFoundError
 )
 
 import textwrap
@@ -377,12 +379,16 @@ class ClassProp(object):
 class ClassInfo(object):
     def __init__(self, name, decl=None, codegen=None):
         # Scope name can be a module or other class e.g. cv::SimpleBlobDetector::Params
-        scope_name, self.original_name = name.rsplit(".", 1)
+        self.original_scope_name, self.original_name = name.rsplit(".", 1)
 
         # In case scope refer the outer class exported with different name
         if codegen:
-            scope_name = codegen.get_export_scope_name(scope_name)
-        self.scope_name = re.sub(r"^cv\.?", "", scope_name)
+            self.export_scope_name = codegen.get_export_scope_name(
+                self.original_scope_name
+            )
+        else:
+            self.export_scope_name = self.original_scope_name
+        self.export_scope_name = re.sub(r"^cv\.?", "", self.export_scope_name)
 
         self.export_name = self.original_name
 
@@ -429,8 +435,8 @@ class ClassInfo(object):
 
     @property
     def wname(self):
-        if len(self.scope_name) > 0:
-            return self.scope_name.replace(".", "_") + "_" + self.export_name
+        if len(self.export_scope_name) > 0:
+            return self.export_scope_name.replace(".", "_") + "_" + self.export_name
 
         return self.export_name
 
@@ -439,16 +445,16 @@ class ClassInfo(object):
         return self.class_id
 
     @property
-    def full_scope_name(self):
-        return "cv." + self.scope_name if len(self.scope_name) else "cv"
+    def full_export_scope_name(self):
+        return "cv." + self.export_scope_name if len(self.export_scope_name) else "cv"
 
     @property
     def full_export_name(self):
-        return self.full_scope_name + "." + self.export_name
+        return self.full_export_scope_name + "." + self.export_name
 
     @property
     def full_original_name(self):
-        return self.full_scope_name + "." + self.original_name
+        return self.original_scope_name + "." + self.original_name
 
     @property
     def has_export_alias(self):
@@ -554,7 +560,7 @@ class ClassInfo(object):
             baseptr,
             constructor_name,
             # Leading dot is required to provide correct class naming
-            "." + self.scope_name if len(self.scope_name) > 0 else self.scope_name
+            "." + self.export_scope_name if len(self.export_scope_name) > 0 else self.export_scope_name
         )
 
 
@@ -1279,7 +1285,7 @@ class PythonWrapperGenerator(object):
         self.namespaces = {}
         self.consts = {}
         self.enums = {}
-        self.cv_root = NamespaceNode("cv")
+        self.cv_root = NamespaceNode("cv", export_name="cv2")
         self.exported_enums: Dict[SymbolName, EnumerationNode] = {}
         self.code_stubs = StringIO()
         self.code_include = StringIO()
@@ -1349,8 +1355,13 @@ class PythonWrapperGenerator(object):
 
     def add_enum(self, name: str, decl):
         enumeration_name = SymbolName.parse(name, self.parser.namespaces)
-        enumeration_node = EnumerationNode(enumeration_name.name)
-        self.exported_enums[enumeration_name] = enumeration_node
+        if enumeration_name in self.exported_enums:
+            assert enumeration_name.name == "<unnamed>", \
+                "Trying to export 2 enums with same symbol name: {}".format(enumeration_name)
+            enumeration_node = self.exported_enums[enumeration_name]
+        else:
+            enumeration_node = EnumerationNode(enumeration_name.name)
+            self.exported_enums[enumeration_name] = enumeration_node
 
         wname = normalize_class_name(name)
         if wname.endswith("<unnamed>"):
@@ -1606,22 +1617,41 @@ class PythonWrapperGenerator(object):
         for decl_idx, name, classinfo in classlist1:
             if classinfo.ismap:
                 continue
+
             def _registerType(classinfo):
+                class_symbol_name = SymbolName.parse(classinfo.full_original_name,
+                                                     self.parser.namespaces)
+                scope = find_scope(self.cv_root, class_symbol_name)
+
                 if classinfo.decl_idx in published_types:
                     #print(classinfo.decl_idx, classinfo.name, ' - already published')
-                    return
+                    return scope.classes[class_symbol_name.name]
                 published_types.add(classinfo.decl_idx)
+
+                properties = []
+                for property in classinfo.props:
+                    properties.append(
+                        ClassProperty(
+                            name=property.name + ("_" if property.name in python_reserved_keywords else ""),
+                            typename=convert_ctype_name_to_pytype_name(property.tp, self),
+                            is_readonly=property.readonly
+                        )
+                    )
+                class_node = scope.add_class(class_symbol_name.name,
+                                             properties=properties)
+                class_node.export_name = classinfo.export_name
 
                 if classinfo.base and classinfo.base in self.classes:
                     base_classinfo = self.classes[classinfo.base]
-                    #print(classinfo.decl_idx, classinfo.name, ' - request publishing of base type ', base_classinfo.decl_idx, base_classinfo.name)
-                    _registerType(base_classinfo)
+                    # print(classinfo.decl_idx, classinfo.name, ' - request publishing of base type ', base_classinfo.decl_idx, base_classinfo.name)
+                    base_node = _registerType(base_classinfo)
+                    class_node.add_base(base_node)
 
-                #print(classinfo.decl_idx, classinfo.name, ' - published!')
+                # print(classinfo.decl_idx, classinfo.name, ' - published!')
                 self.code_type_publish.write(classinfo.gen_def(self))
+                return class_node
 
             _registerType(classinfo)
-
 
         # step 3: generate the code for all the global functions
         global_func_stubs = defaultdict(list)
@@ -1661,11 +1691,27 @@ class PythonWrapperGenerator(object):
         # All symbols are collected
         for full_enum_name, enum_node in self.exported_enums.items():
             if len(full_enum_name.classes) > 0:
-                # Skip for now
-                continue
-            scope = find_scope(self.cv_root, full_enum_name)
+                try:
+                    scope = find_scope(self.cv_root, full_enum_name)
+                except ScopeNotFoundError:
+                    # Scope can't be found if enumeration is a part of class
+                    # that is not exported.
+                    # Create class node, but mark it as not exported
+                    for i, class_name in enumerate(full_enum_name.classes):
+                        scope = find_scope(self.cv_root,
+                                           SymbolName(full_enum_name.namespaces,
+                                                      classes=full_enum_name.classes[:i],
+                                                      name=class_name))
+                        if class_name in scope.classes:
+                            continue
+                        class_node = scope.add_class(class_name)
+                        class_node.is_exported = False
+                    scope = find_scope(self.cv_root, full_enum_name)
+            else:
+                scope = find_scope(self.cv_root, full_enum_name)
             enum_node.parent = scope
 
+        generate_typing_stubs(self.cv_root, os.path.join(output_path, "stubs"))
         # That's it. Now save all the files
         self.save(output_path, "__init__.pyi", self.code_stubs)
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)

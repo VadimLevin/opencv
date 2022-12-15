@@ -149,12 +149,45 @@ def _generate_enumeration_stub(enumeration_node: EnumerationNode,
 
 def _generate_function_stub(function_node: FunctionNode,
                             output_stream: StringIO, indent: int = 0):
-    output_stream.write(
-        "{indent}def {name}() -> None: ...\n".format(
-            name=function_node.export_name,
-            indent=" " * indent
+    decorators = []
+    if function_node.is_classmethod:
+        decorators.append(" " * indent + "@classmethod")
+    elif function_node.is_static:
+        decorators.append(" " * indent + "@staticmethod")
+    if len(function_node.overloads) > 1:
+        decorators.append(" " * indent + "@overload")
+    for overload in function_node.overloads:
+        # Annotate every function argument
+        annotated_args = []
+        for arg in overload.arguments:
+            annotated_args.append(arg.name)
+            if arg.typename is not None:
+                annotated_args[-1] += (": " + arg.typename)
+            if arg.default_value is not None:
+                annotated_args[-1] += " = ..."
+        # And convert return type to the actual type
+        if overload.return_type is None:
+            ret_type = "None"
+        elif isinstance(overload.return_type.types, str):
+            ret_type = overload.return_type.types
+        else:
+            try:
+                ret_type = "Tuple[{}]".format(", ".join(overload.return_type.types))
+            except TypeError:
+                print(overload.return_type)
+                raise
+
+        output_stream.write(
+            "{decorators}"
+            "{indent}def {name}({args}) -> {ret_type}: ...\n".format(
+                decorators="\n".join(decorators) + "\n" if len(decorators) > 0 else "",
+                name=function_node.export_name,
+                args=", ".join(annotated_args),
+                ret_type=ret_type,
+                indent=" " * indent
+            )
         )
-    )
+    output_stream.write("\n")
 
 
 def _generate_enums_from_classes_tree(class_node: ClassNode,

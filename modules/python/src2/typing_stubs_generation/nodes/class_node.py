@@ -65,8 +65,20 @@ class ClassNode(ASTNode):
         return self._add_child(ClassNode, name, bases=bases,
                                properties=properties)
 
-    def add_function(self, name: str) -> FunctionNode:
-        return self._add_child(FunctionNode, name)
+    def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
+                     return_type: Optional[FunctionNode.RetType] = None,
+                     is_static: bool = False) -> FunctionNode:
+        arguments = list(arguments)
+        if return_type is not None and isinstance(return_type.types, str):
+            is_classmethod = return_type.types == self.name
+        if not is_static:
+            arguments.insert(0, FunctionNode.Arg("self"))
+        elif is_classmethod:
+            is_static = False
+            arguments.insert(0, FunctionNode.Arg("cls"))
+        return self._add_child(FunctionNode, name, arguments=arguments,
+                               return_type=return_type, is_static=is_static,
+                               is_classmethod=is_classmethod)
 
     def add_enumeration(self, name: str) -> EnumerationNode:
         return self._add_child(EnumerationNode, name)

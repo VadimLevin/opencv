@@ -1,4 +1,4 @@
-from typing import Tuple, Type, Dict, Iterable, Sequence
+from typing import Tuple, Type, Dict, Iterable, Sequence, Optional
 import itertools
 import weakref
 
@@ -52,8 +52,10 @@ class NamespaceNode(ASTNode):
         return self._add_child(ClassNode, name, bases=bases,
                                properties=properties)
 
-    def add_function(self, name: str) -> FunctionNode:
-        return self._add_child(FunctionNode, name)
+    def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
+                     return_type: Optional[FunctionNode.RetType] = None) -> FunctionNode:
+        return self._add_child(FunctionNode, name, arguments=arguments,
+                               return_type=return_type)
 
     def add_enumeration(self, name: str) -> EnumerationNode:
         return self._add_child(EnumerationNode, name)

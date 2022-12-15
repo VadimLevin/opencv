@@ -21,6 +21,8 @@ from typing_stubs_generation import (
     generate_typing_stubs,
     ClassProperty,
     NamespaceNode,
+    ClassNode,
+    FunctionNode,
     EnumerationNode,
     SymbolName,
     find_scope,
@@ -572,6 +574,7 @@ def handle_ptr(tp):
 
 CTYPE_TO_PYTYPE_MAP = {
     "char": "str",
+    "uchar": "int",
     "String": "str",
     "string": "str",
     "c_string": "str",
@@ -928,6 +931,7 @@ class FuncVariant(object):
 
 class FuncInfo(object):
     def __init__(self, classname, name, cname, isconstructor, namespace, is_static):
+        print(namespace, classname, name)
         self.classname = classname
         self.name = name
         self.cname = cname
@@ -1273,7 +1277,61 @@ class Namespace(object):
         self.consts = {}
 
 
+def create_function_node_in_scope(scope, function, codegen):
+    # type (NamespaceNode | ClassNode, FuncInfo, PythonWrapperGenerator) -> None
+    def prepare_overload_arguments_and_return_type(variant):
+        # type (FuncVariant) -> list[FunctionNode.Arg], FunctionNode.RetType
+        arguments = []  # type: list[FunctionNode.Arg]
+        for _, argno in variant.py_arglist:
+            arg_info = variant.args[argno]
+            arguments.append(
+                FunctionNode.Arg(
+                    arg_info.name,
+                    typename=convert_ctype_name_to_pytype_name(arg_info.tp, codegen),
+                    default_value=arg_info.defval if len(arg_info.defval) else None
+                )
+            )
+        # Function has more than 1 output argument, so its return type is a tuple
+        if len(variant.py_outlist) > 1:
+            return arguments, FunctionNode.RetType(
+                tuple(
+                    convert_ctype_name_to_pytype_name(variant.args[argno].tp, codegen)
+                    for _, argno in variant.py_outlist
+                )
+            )
+        # Function with 1 output argument in Python
+        if len(variant.py_outlist) == 1:
+            # Can be represented as a function with a non-void return type in C++
+            if variant.rettype:
+                return arguments, FunctionNode.RetType(
+                    convert_ctype_name_to_pytype_name(variant.rettype, codegen)
+                )
+            # or a function with void return type and output argument type
+            # such non-const reference
+            ret_type = variant.args[variant.py_outlist[0][1]].tp
+            return arguments, FunctionNode.RetType(
+                convert_ctype_name_to_pytype_name(ret_type, codegen)
+            )
+        # Function without output types returns None in Python
+        return arguments, None
 
+    function_node = FunctionNode(function.name)
+    function_node.parent = scope
+    for variant in function.variants:
+        function_node.add_overload(*prepare_overload_arguments_and_return_type(variant))
+
+
+def create_function_node(root, function, codegen):
+    # type: (NamespaceNode, FuncInfo, PythonWrapperGenerator) -> None
+    func_symbol_name = SymbolName(function.namespace.split(".") if len(function.namespace) else (),
+                                  function.classname.split(".") if len(function.classname) else (),
+                                  function.name)
+    try:
+        create_function_node_in_scope(find_scope(root, func_symbol_name),
+                                      function, codegen)
+    except ScopeNotFoundError:
+        print("'{}', classname='{}'".format(tuple(function.classname.strip().split(".")), function.classname))
+        raise
 
 
 class PythonWrapperGenerator(object):
@@ -1619,6 +1677,8 @@ class PythonWrapperGenerator(object):
                 continue
 
             def _registerType(classinfo):
+                # type: (ClassInfo) -> ClassNode
+
                 class_symbol_name = SymbolName.parse(classinfo.full_original_name,
                                                      self.parser.namespaces)
                 scope = find_scope(self.cv_root, class_symbol_name)
@@ -1630,9 +1690,12 @@ class PythonWrapperGenerator(object):
 
                 properties = []
                 for property in classinfo.props:
+                    export_property_name = property.name
+                    if export_property_name in python_reserved_keywords:
+                        export_property_name += "_"
                     properties.append(
                         ClassProperty(
-                            name=property.name + ("_" if property.name in python_reserved_keywords else ""),
+                            name=export_property_name,
                             typename=convert_ctype_name_to_pytype_name(property.tp, self),
                             is_readonly=property.readonly
                         )
@@ -1640,6 +1703,8 @@ class PythonWrapperGenerator(object):
                 class_node = scope.add_class(class_symbol_name.name,
                                              properties=properties)
                 class_node.export_name = classinfo.export_name
+                for method in classinfo.methods.values():
+                    create_function_node_in_scope(class_node, method, self)
 
                 if classinfo.base and classinfo.base in self.classes:
                     base_classinfo = self.classes[classinfo.base]
@@ -1665,6 +1730,10 @@ class PythonWrapperGenerator(object):
                 self.code_funcs.write(code)
                 stub = func.generate_stub(self)
                 global_func_stubs[func.name].append(stub)
+                if func.is_static:
+                    continue
+                create_function_node(self.cv_root, func, self)
+
             self.gen_namespace(ns_name)
             self.code_ns_init.write('CVPY_MODULE("{}", {});\n'.format(ns_name[2:], normalize_class_name(ns_name)))
 

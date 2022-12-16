@@ -70,7 +70,9 @@ class ClassNode(ASTNode):
                      is_static: bool = False) -> FunctionNode:
         arguments = list(arguments)
         if return_type is not None and isinstance(return_type.types, str):
-            is_classmethod = return_type.types == self.name
+            is_classmethod = return_type.types.endswith(self.name)
+        else:
+            is_classmethod = False
         if not is_static:
             arguments.insert(0, FunctionNode.Arg("self"))
         elif is_classmethod:

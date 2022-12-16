@@ -931,7 +931,6 @@ class FuncVariant(object):
 
 class FuncInfo(object):
     def __init__(self, classname, name, cname, isconstructor, namespace, is_static):
-        print(namespace, classname, name)
         self.classname = classname
         self.name = name
         self.cname = cname
@@ -1278,7 +1277,7 @@ class Namespace(object):
 
 
 def create_function_node_in_scope(scope, function, codegen):
-    # type (NamespaceNode | ClassNode, FuncInfo, PythonWrapperGenerator) -> None
+    # type (NamespaceNode | ClassNode, FuncInfo, PythonWrapperGenerator) -> FunctionNode
     def prepare_overload_arguments_and_return_type(variant):
         # type (FuncVariant) -> list[FunctionNode.Arg], FunctionNode.RetType
         arguments = []  # type: list[FunctionNode.Arg]
@@ -1291,6 +1290,9 @@ def create_function_node_in_scope(scope, function, codegen):
                     default_value=arg_info.defval if len(arg_info.defval) else None
                 )
             )
+        if function.isconstructor:
+            return arguments, None
+
         # Function has more than 1 output argument, so its return type is a tuple
         if len(variant.py_outlist) > 1:
             return arguments, FunctionNode.RetType(
@@ -1317,21 +1319,33 @@ def create_function_node_in_scope(scope, function, codegen):
 
     function_node = FunctionNode(function.name)
     function_node.parent = scope
+    if function.isconstructor:
+        function_node.export_name = "__init__"
     for variant in function.variants:
-        function_node.add_overload(*prepare_overload_arguments_and_return_type(variant))
+        arguments, ret_type = prepare_overload_arguments_and_return_type(variant)
+        if isinstance(scope, ClassNode):
+            if function.is_static:
+                if ret_type is not None and ret_type.types.endswith(scope.name):
+                    function_node.is_classmethod = True
+                    arguments.insert(0, FunctionNode.Arg("cls"))
+                else:
+                    function_node.is_static = True
+            else:
+                arguments.insert(0, FunctionNode.Arg("self"))
+        function_node.add_overload(arguments, ret_type)
+    return function_node
 
 
 def create_function_node(root, function, codegen):
-    # type: (NamespaceNode, FuncInfo, PythonWrapperGenerator) -> None
-    func_symbol_name = SymbolName(function.namespace.split(".") if len(function.namespace) else (),
-                                  function.classname.split(".") if len(function.classname) else (),
-                                  function.name)
-    try:
-        create_function_node_in_scope(find_scope(root, func_symbol_name),
-                                      function, codegen)
-    except ScopeNotFoundError:
-        print("'{}', classname='{}'".format(tuple(function.classname.strip().split(".")), function.classname))
-        raise
+    # type: (NamespaceNode, FuncInfo, PythonWrapperGenerator) -> FunctionNode
+
+    func_symbol_name = SymbolName(
+        function.namespace.split(".") if len(function.namespace) else (),
+        function.classname.split(".") if len(function.classname) else (),
+        function.name
+    )
+    return create_function_node_in_scope(find_scope(root, func_symbol_name),
+                                         function, codegen)
 
 
 class PythonWrapperGenerator(object):
@@ -1703,6 +1717,8 @@ class PythonWrapperGenerator(object):
                 class_node = scope.add_class(class_symbol_name.name,
                                              properties=properties)
                 class_node.export_name = classinfo.export_name
+                if classinfo.constructor is not None:
+                    create_function_node_in_scope(class_node, classinfo.constructor, self)
                 for method in classinfo.methods.values():
                     create_function_node_in_scope(class_node, method, self)
 

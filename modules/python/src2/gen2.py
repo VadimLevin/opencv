@@ -4,7 +4,7 @@ from __future__ import print_function
 import os
 import hdr_parser, sys, re
 from string import Template
-from collections import namedtuple, defaultdict, OrderedDict
+from collections import namedtuple
 from itertools import chain
 
 
@@ -13,11 +13,10 @@ if sys.version_info[0] >= 3:
     from typing import Dict
 else:
     from cStringIO import StringIO
-    from itertools import ifilter as filter
+
 
 from typing_stubs_generation import (
-    replace_template_parameters_with_placeholders,
-    get_template_instantiation_type,
+    convert_ctype_name_to_pytype_name,
     generate_typing_stubs,
     ClassProperty,
     NamespaceNode,
@@ -220,92 +219,6 @@ ${variant}
         pyPopulateArgumentConversionErrors();
     }
 """)
-
-stub_header = """import numpy as np
-
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    Callable,
-    overload,
-    Sequence,
-    Tuple,
-    Union,
-)
-
-"""
-
-STUB_FORWARD_DECLARED_CLASSES = (
-    "dnn_DictValue", "Feature2D", "GCompileArg", "GRunArg", "GOpaqueT", "GArrayT", "GScalar", "GTypeInfo",
-    "GMetaArg", "GMat",
-    "gapi_wip_draw_Text", "gapi_wip_draw_Circle", "gapi_wip_draw_Image", "gapi_wip_draw_Line",
-    "gapi_wip_draw_Rect", "gapi_wip_draw_Mosaic", "gapi_wip_draw_Poly",
-)
-
-STUB_TYPE_ALIASES = OrderedDict((
-    ("Mat", "np.ndarray"),
-    ("MatShape", "Sequence[int]"),
-    ("Point", "Sequence[int]"),
-    ("Point2i", "Sequence[int]"),
-    ("Point2f", "Sequence[float]"),
-    ("Point2d", "Sequence[float]"),
-    ("Point3i", "Sequence[int]"),
-    ("Point3f", "Sequence[float]"),
-    ("Point3d", "Sequence[float]"),
-    ("Range", "Sequence[int]"),
-    ("Rect", "Sequence[int]"),
-    ("Rect2i", "Sequence[int]"),
-    ("Rect2d", "Sequence[float]"),
-    ("RotatedRect", "Sequence[Any]"),
-    ("Scalar", "Sequence[float]"),
-    ("Size", "Sequence[int]"),
-    ("Size2f", "Sequence[float]"),
-    ("TermCriteria", "Sequence[Any]"),
-    ("uchar", "int"),
-    ("unsigned", "int"),
-    ("Vec2i", "Sequence[int]"),
-    ("Vec2f", "Sequence[float]"),
-    ("Vec2d", "Sequence[float]"),
-    ("Vec3i", "Sequence[int]"),
-    ("Vec3f", "Sequence[float]"),
-    ("Vec3d", "Sequence[float]"),
-    ("Vec4i", "Sequence[int]"),
-    ("Vec4f", "Sequence[float]"),
-    ("Vec4d", "Sequence[float]"),
-    ("Vec6f", "Sequence[float]"),
-    ("DescriptorExtractor", "Feature2D"),
-    ("FeatureDetector", "Feature2D"),
-    ("GMat2", "Tuple[GMat, GMat]"),
-    ("GOpaque", "GOpaqueT"),
-    ("GArray", "GArrayT"),
-    ("GCompileArgs", "Sequence[GCompileArg]"),
-    ("GTypesInfo", "Sequence[GTypeInfo]"),
-    ("GRunArgs", "Sequence[GRunArg]"),
-    ("GMetaArgs", "Sequence[GMetaArg]"),
-    ("GProtoArg", "Union[GScalar, GMat, GOpaque, GArray]"),
-    ("GProtoArgs", "Sequence[GProtoArg]"),
-    ("GProtoInputArgs", "GProtoArgs"),
-    ("GProtoOutputArgs", "GProtoArgs"),
-    ("GOptRunArg", "Union[None, Mat, Scalar, GOpaque, Sequence[Any]]"),
-    ("GOptRunArgs", "Sequence[GOptRunArg]"),
-    ("detail_ExtractArgsCallback", "Callable[[GTypesInfo], GRunArgs]"),
-    ("detail_ExtractMetaCallback", "Callable[[GTypesInfo], GMetaArgs]"),
-    ("Prim", "Union[gapi_wip_draw_Text, gapi_wip_draw_Circle, gapi_wip_draw_Image, gapi_wip_draw_Line, "
-             "gapi_wip_draw_Rect, gapi_wip_draw_Mosaic, gapi_wip_draw_Poly]"),
-    ("Prims", "Sequence[Prim]"),
-    ("LayerId", "dnn_DictValue"),
-    ("flann_IndexParams", "Dict[str, Union[bool, int, float, str]]"),
-    ("IndexParams", "flann_IndexParams"),
-    ("flann_SearchParams", "Dict[str, Union[bool, int, float, str]]"),
-    ("SearchParams", "flann_SearchParams"),
-    ("cvflann_flann_distance_t", "int"),
-    ("cvflann_flann_algorithm_t", "int"),
-    ("Matx33f", "np.ndarray"),
-    ("Matx33d", "np.ndarray"),
-    ("Matx44f", "np.ndarray"),
-    ("Matx44d", "np.ndarray"),
-))
 
 
 class FormatStrings:
@@ -522,28 +435,6 @@ class ClassInfo(object):
 
         return code
 
-    def generate_stub(self, codegen):
-        CLASS_MEMBERS_INDENT = " " * 4
-        stub = "class {class_name}{base_class_name}:\n".format(class_name=self.name,
-                                                               base_class_name="({})".format(self.base) if self.base else "")
-        # No properties, no methods (possibly it is a base class in inheritance hierarchy)
-        if len(self.props) == 0 and len(self.methods) == 0:
-            stub += CLASS_MEMBERS_INDENT + "pass\n"
-            return stub
-
-        for class_property in sorted(self.props, key=lambda prop: prop.name):
-            stub += CLASS_MEMBERS_INDENT + "{}: {}\n".format(
-                class_property.name,
-                convert_ctype_name_to_pytype_name(class_property.tp, codegen)
-            )
-
-        if self.constructor:
-            stub += indent(self.constructor.generate_stub(codegen), CLASS_MEMBERS_INDENT)
-
-        for _, method_info in sorted(self.methods.items()):
-            stub += indent(method_info.generate_stub(codegen), CLASS_MEMBERS_INDENT)
-        return stub
-
     def gen_def(self, codegen):
         all_classes = codegen.classes
         baseptr = "NoBase"
@@ -570,146 +461,6 @@ def handle_ptr(tp):
     if tp.startswith('Ptr_'):
         tp = 'Ptr<' + "::".join(tp.split('_')[1:]) + '>'
     return tp
-
-
-CTYPE_TO_PYTYPE_MAP = {
-    "char": "str",
-    "uchar": "int",
-    "String": "str",
-    "string": "str",
-    "c_string": "str",
-    "double": "float",
-    "int64": "int",
-    "size_t": "int",
-    "void": "None",
-    "vector<uchar>": "np.ndarray",
-    "vector_uchar": "np.ndarray",
-}
-
-PREFIXES_TO_REMOVE = ("cv::", "cv_", "std::", "std_")
-
-
-def normalize_ctype_name(typename):
-    for prefix_to_remove in PREFIXES_TO_REMOVE:
-        if typename.startswith(prefix_to_remove):
-            typename = typename[len(prefix_to_remove):]
-    typename = typename.replace("::", "_")
-    if typename.endswith('&'):
-        typename = typename[:-1]
-    return typename.strip()
-
-
-def is_tuple(typename):
-    return typename.startswith("tuple") or typename.startswith("pair")
-
-
-def is_sequence_type(typename):
-    return typename.startswith("vector")
-
-
-def is_pointer_type(typename):
-    return typename.startswith("Ptr") or typename.endswith("*")
-
-
-def is_template_class_instantiation(typename):
-    if "<" in typename:
-        assert ">" in typename, \
-            "Wrong template class instantiation: {}. '>' is missing".format(typename)
-        return True
-    return False
-
-
-def convert_template_arguments_to_pytypes_arguments(template_args_str, codegen):
-    pytypes = []
-    # If template arguments string contains types that are also templates - replace it with format placeholder
-    # and than reconstruct original type. It covers the cases when inner template types have several template params.
-    # e.g. std::tuple<std::variant<int, Point<int>, int, std::vector<int>>
-    template_args_str, templated_args_types = replace_template_parameters_with_placeholders(template_args_str)
-    template_index = 0
-    for template_arg in template_args_str.split(","):
-        template_arg = template_arg.strip()
-        if is_template_class_instantiation(template_arg):
-            template_arg = template_arg.format(templated_args_types[template_index])
-            template_index += 1
-        pytypes.append(convert_ctype_name_to_pytype_name(template_arg, codegen))
-    return pytypes
-
-
-def convert_ctype_name_to_pytype_name(typename, codegen):
-    original_ctype_name = typename
-    typename = normalize_ctype_name(typename.strip())
-
-    # If typename is one of the built-in Python types
-    if typename in ("float", "int", "bool"):
-        return typename
-
-    pytype = CTYPE_TO_PYTYPE_MAP.get(typename)
-    if pytype is not None:
-        return pytype
-
-    if typename in STUB_TYPE_ALIASES:
-        return typename
-
-    # GAPI types
-    if typename.startswith("GArray_") or typename.startswith("GArray<"):
-        return "GArray"
-    if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
-        return "GOpaque"
-    if typename.startswith("util_variant"):
-        variant_types = get_template_instantiation_type(typename)
-        return "Union[{}]".format(
-            ", ".join(convert_template_arguments_to_pytypes_arguments(variant_types, codegen))
-        )
-
-    # Non-standard pointer types
-    if typename.endswith("_Ptr"):
-        return convert_ctype_name_to_pytype_name(typename[:-4], codegen)
-    elif typename.endswith("Ptr"):
-        return convert_ctype_name_to_pytype_name(typename[:-3], codegen)
-
-    if is_sequence_type(typename):
-        if is_template_class_instantiation(typename):
-            sequence_pytype = convert_ctype_name_to_pytype_name(
-                get_template_instantiation_type(typename), codegen
-            )
-        else:
-            # maxsplit=1 - recursively find pytype of sequence always examinating
-            # the outermost of inner type:
-            # Example: vector_vector_Mat -> Sequence[Sequence[Mat]]
-            sequence_pytype = convert_ctype_name_to_pytype_name(
-                typename.split("_", 1)[-1], codegen
-            )
-        return "Sequence[{}]".format(sequence_pytype)
-
-    if is_pointer_type(typename):
-        if typename.endswith("*"):
-            return convert_ctype_name_to_pytype_name(typename[:-1], codegen)
-        elif is_template_class_instantiation(typename):
-            return convert_ctype_name_to_pytype_name(get_template_instantiation_type(typename), codegen)
-        else:
-            return convert_ctype_name_to_pytype_name(typename.split("_", 1)[-1], codegen)
-
-    if is_tuple(typename):
-        tuple_types = get_template_instantiation_type(typename)
-        return "Tuple[{}]".format(", ".join(
-            convert_template_arguments_to_pytypes_arguments(tuple_types, codegen)
-        ))
-
-    # If typename is a known class or enum name - use it
-    if typename in chain(codegen.classes.keys(), codegen.enums.keys()):
-        return typename
-
-    # class/enum types might have their namespace prefixes missing
-    # example: Boost -> ml_Boost
-    # In case we should find class/enum type that ends with `typename`, but there is no exact match
-    known_typename = next(filter(
-        lambda name: name.endswith(typename), chain(codegen.classes.keys(), codegen.enums.keys())
-    ), None)
-
-    assert known_typename is not None, \
-        "Can't find a Python type alternative for {}. Search name: {}".format(original_ctype_name, typename)
-
-    return known_typename
 
 
 class ArgInfo(object):
@@ -779,6 +530,10 @@ class FuncVariant(object):
                     self.array_counters[c] = [ainfo.name]
             self.args.append(ainfo)
         self.init_pyproto()
+
+    def is_arg_optional(self, py_arg_index):
+        # type: (FuncVariant, int) -> bool
+        return py_arg_index >= len(self.py_arglist) - self.py_noptargs
 
     def init_pyproto(self):
         # string representation of argument list, with '[', ']' symbols denoting optional arguments, e.g.
@@ -865,68 +620,68 @@ class FuncVariant(object):
                 self.args[argno].py_outputarg = True
         self.py_outlist = outlist
 
-    def generate_stub(self, codegen, is_static=False):
-        # Function might have return type and output args
-        if len(self.py_outlist) > 1:
-            return_type = "Tuple[{}]".format(
-                ", ".join(convert_ctype_name_to_pytype_name(self.args[argno].tp, codegen)
-                          for _, argno in self.py_outlist)
-            )
-        elif len(self.py_outlist) == 1 and not self.isconstructor:
-            # In case of function has return value - use it,
-            # otherwise derive the return type from output arguments
-            if self.rettype:
-                return_type = convert_ctype_name_to_pytype_name(self.rettype, codegen)
-            else:
-                output_argno = self.py_outlist[0][-1]
-                assert output_argno < len(self.args), \
-                    "Function {0} args: {1}, output_argno: {2}".format(self.name,
-                                                                       ", ".join(arg.name for arg in self.args),
-                                                                       output_argno)
-                return_type = convert_ctype_name_to_pytype_name(self.args[output_argno].tp, codegen)
-        else:
-            return_type = "None"
+    # def generate_stub(self, codegen, is_static=False):
+    #     # Function might have return type and output args
+    #     if len(self.py_outlist) > 1:
+    #         return_type = "Tuple[{}]".format(
+    #             ", ".join(convert_ctype_name_to_pytype_name(self.args[argno].tp, codegen)
+    #                       for _, argno in self.py_outlist)
+    #         )
+    #     elif len(self.py_outlist) == 1 and not self.isconstructor:
+    #         # In case of function has return value - use it,
+    #         # otherwise derive the return type from output arguments
+    #         if self.rettype:
+    #             return_type = convert_ctype_name_to_pytype_name(self.rettype, codegen)
+    #         else:
+    #             output_argno = self.py_outlist[0][-1]
+    #             assert output_argno < len(self.args), \
+    #                 "Function {0} args: {1}, output_argno: {2}".format(self.name,
+    #                                                                    ", ".join(arg.name for arg in self.args),
+    #                                                                    output_argno)
+    #             return_type = convert_ctype_name_to_pytype_name(self.args[output_argno].tp, codegen)
+    #     else:
+    #         return_type = "None"
 
-        arglist = []
-        outarr_list = []
-        has_input_umat = any((arg_info.inputarg and arg_info.tp in (
-            "UMat", "vector_UMat", "cuda::GpuMat")) for arg_info in self.args)
-        for arg_info in self.args:
-            if arg_info.tp in ignored_arg_types:
-                continue
-            if (not arg_info.inputarg) and (not arg_info.isbig()):
-                continue
-            arg_type = convert_ctype_name_to_pytype_name(arg_info.tp, codegen)
-            arg_default = " = ..." if arg_info.defval else ""
-            if not arg_info.inputarg:
-                # UMat/GpuMat output arguments are not Optional,
-                # unless there exists an UMat/GpuMat input argument
-                if has_input_umat or arg_info.tp in ("Mat", "vector_Mat"):
-                    arg_type = "Optional[{}]".format(arg_type)
-                    if not arg_info.defval:
-                        arg_default = " = None"
-                outarr_list.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
-            else:
-                if arg_info.defval and outarr_list:
-                    arglist.extend(outarr_list)
-                    outarr_list = []
-                arglist.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
-        if outarr_list:
-            arglist.extend(outarr_list)
-        annotated_args = ", ".join(arglist)
+    #     arglist = []
+    #     outarr_list = []
+    #     has_input_umat = any((arg_info.inputarg and arg_info.tp in (
+    #         "UMat", "vector_UMat", "cuda::GpuMat")) for arg_info in self.args)
+    #     for arg_info in self.args:
+    #         if arg_info.tp in ignored_arg_types:
+    #             continue
+    #         if (not arg_info.inputarg) and (not arg_info.isbig()):
+    #             continue
+    #         arg_type = convert_ctype_name_to_pytype_name(arg_info.tp, codegen)
+    #         arg_default = " = ..." if arg_info.defval else ""
+    #         if not arg_info.inputarg:
+    #             # UMat/GpuMat output arguments are not Optional,
+    #             # unless there exists an UMat/GpuMat input argument
+    #             if has_input_umat or arg_info.tp in ("Mat", "vector_Mat"):
+    #                 arg_type = "Optional[{}]".format(arg_type)
+    #                 if not arg_info.defval:
+    #                     arg_default = " = None"
+    #             outarr_list.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
+    #         else:
+    #             if arg_info.defval and outarr_list:
+    #                 arglist.extend(outarr_list)
+    #                 outarr_list = []
+    #             arglist.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
+    #     if outarr_list:
+    #         arglist.extend(outarr_list)
+    #     annotated_args = ", ".join(arglist)
 
-        # `self` argument without type annotations is required for non-static class methods
-        if self.classname and not is_static:
-            # If there are input arguments for the method - prepend `self`.
-            if annotated_args:
-                annotated_args = "self, " + annotated_args
-            else:
-                # annotated args are `self`
-                annotated_args = "self"
-        return "def {func_name}({func_args}) -> {func_return_type}: ...".format(
-            func_name="__init__" if self.isconstructor else self.name,
-            func_args=annotated_args,
-            func_return_type=return_type)
+    #     # `self` argument without type annotations is required for non-static class methods
+    #     if self.classname and not is_static:
+    #         # If there are input arguments for the method - prepend `self`.
+    #         if annotated_args:
+    #             annotated_args = "self, " + annotated_args
+    #         else:
+    #             # annotated args are `self`
+    #             annotated_args = "self"
+    #     return "def {func_name}({func_args}) -> {func_return_type}: ...".format(
+    #         func_name="__init__" if self.isconstructor else self.name,
+    #         func_args=annotated_args,
+    #         func_return_type=return_type)
 
 
 class FuncInfo(object):
@@ -1012,17 +767,6 @@ class FuncInfo(object):
         return Template('    {"$py_funcname", CV_PY_FN_WITH_KW_($wrap_funcname, $flags), "$py_docstring"},\n'
                         ).substitute(py_funcname = self.variants[0].wname, wrap_funcname=self.get_wrapper_name(),
                                      flags = 'METH_STATIC' if self.is_static else '0', py_docstring = full_docstring)
-
-    def generate_stub(self, codegen):
-        result = ""
-        decorators = ""
-        if len(self.variants) > 1:
-            decorators += "@overload\n"
-        if self.is_static:
-            decorators += "@staticmethod\n"
-        for function_variant in self.variants:
-            result += ''.join((decorators, function_variant.generate_stub(codegen, self.is_static), "\n"))
-        return result
 
     def gen_code(self, codegen):
         all_classes = codegen.classes
@@ -1281,14 +1025,30 @@ def create_function_node_in_scope(scope, function, codegen):
     def prepare_overload_arguments_and_return_type(variant):
         # type (FuncVariant) -> list[FunctionNode.Arg], FunctionNode.RetType
         arguments = []  # type: list[FunctionNode.Arg]
-        for _, argno in variant.py_arglist:
+        # Enumerate is requried, because `argno` in `variant.py_arglist`
+        # refers to position of argument in C++ function interface,
+        # but `variant.py_noptargs` refers to position in `py_arglist`
+        for i, (_, argno) in enumerate(variant.py_arglist):
             arg_info = variant.args[argno]
+            typename = convert_ctype_name_to_pytype_name(arg_info.tp,
+                                                         codegen.classes,
+                                                         codegen.exported_enums)
+            default_value = None
+            if len(arg_info.defval):
+                default_value = arg_info.defval
+            # If argument is optional and can be None - make its type optional
+            if variant.is_arg_optional(i):
+                if arg_info.py_outputarg:
+                    typename += " | None"
+                    default_value = "None"
+                elif arg_info.isbig() and "None" not in typename:
+                    # but avoid duplication of the optioness
+                    typename += " | None"
+            # assert function.name != "PCACompute" or arg_info.name != "mean" or "None" not in typename, \
+            #     f"{typename=}, {arg_info.defval=}, {default_value=} {arg_info.py_outputarg=} {variant.py_noptargs=}"
             arguments.append(
-                FunctionNode.Arg(
-                    arg_info.name,
-                    typename=convert_ctype_name_to_pytype_name(arg_info.tp, codegen),
-                    default_value=arg_info.defval if len(arg_info.defval) else None
-                )
+                FunctionNode.Arg(arg_info.name, typename=typename,
+                                 default_value=default_value)
             )
         if function.isconstructor:
             return arguments, None
@@ -1297,7 +1057,7 @@ def create_function_node_in_scope(scope, function, codegen):
         if len(variant.py_outlist) > 1:
             return arguments, FunctionNode.RetType(
                 tuple(
-                    convert_ctype_name_to_pytype_name(variant.args[argno].tp, codegen)
+                    convert_ctype_name_to_pytype_name(variant.args[argno].tp, codegen.classes, codegen.exported_enums)
                     for _, argno in variant.py_outlist
                 )
             )
@@ -1306,13 +1066,16 @@ def create_function_node_in_scope(scope, function, codegen):
             # Can be represented as a function with a non-void return type in C++
             if variant.rettype:
                 return arguments, FunctionNode.RetType(
-                    convert_ctype_name_to_pytype_name(variant.rettype, codegen)
+                    convert_ctype_name_to_pytype_name(variant.rettype,
+                                                      codegen.classes,
+                                                      codegen.exported_enums)
                 )
             # or a function with void return type and output argument type
             # such non-const reference
             ret_type = variant.args[variant.py_outlist[0][1]].tp
             return arguments, FunctionNode.RetType(
-                convert_ctype_name_to_pytype_name(ret_type, codegen)
+                convert_ctype_name_to_pytype_name(ret_type, codegen.classes,
+                                                  codegen.exported_enums)
             )
         # Function without output types returns None in Python
         return arguments, None
@@ -1359,7 +1122,6 @@ class PythonWrapperGenerator(object):
         self.enums = {}
         self.cv_root = NamespaceNode("cv", export_name="cv2")
         self.exported_enums: Dict[SymbolName, EnumerationNode] = {}
-        self.code_stubs = StringIO()
         self.code_include = StringIO()
         self.code_enums = StringIO()
         self.code_types = StringIO()
@@ -1451,12 +1213,6 @@ class PythonWrapperGenerator(object):
             # stub generation
             _, classes, name = self.split_decl_name(name)
             name = '_'.join(chain(classes, (name, )))
-            stub_enums.append(name)
-            self.code_stubs.write("{}: int\n".format(name))
-        if wname:
-            self.code_stubs.write("{} = int\n".format(
-                wname, ', '.join(stub_enums)))
-        self.code_stubs.write("\n")
 
     def add_func(self, decl):
         namespace, classes, barename = self.split_decl_name(decl[0])
@@ -1581,8 +1337,6 @@ class PythonWrapperGenerator(object):
         self.clear()
         self.parser = hdr_parser.CppHeaderParser(generate_umat_decls=True, generate_gpumat_decls=True)
 
-        # stub header
-        self.code_stubs.write(stub_header)
 
         # step 1: scan the headers and build more descriptive maps of classes, consts, functions
         for hdr in srcfiles:
@@ -1649,14 +1403,6 @@ class PythonWrapperGenerator(object):
         for name, classinfo in self.classes.items():
             process_isalgorithm(classinfo)
 
-        # initial classes and type aliases
-        self.code_stubs.write("\n")
-        for classname in STUB_FORWARD_DECLARED_CLASSES:
-            self.code_stubs.write("class {}: ...\n\n\n".format(classname))
-        for alias_name, alias_type in STUB_TYPE_ALIASES.items():
-            self.code_stubs.write("{} = {}\n".format(alias_name, alias_type))
-        self.code_stubs.write("\n\n")
-
         # step 2: generate code for the classes and their methods
         classlist = list(self.classes.items())
         classlist.sort()
@@ -1677,8 +1423,6 @@ class PythonWrapperGenerator(object):
                     mappable_code=mappable_code
                 )
                 self.code_types.write(code)
-            self.code_stubs.write(classinfo.generate_stub(self))
-            self.code_stubs.write("\n\n")
 
         # register classes in the same order as they have been declared.
         # this way, base classes will be registered in Python before their derivatives.
@@ -1710,7 +1454,9 @@ class PythonWrapperGenerator(object):
                     properties.append(
                         ClassProperty(
                             name=export_property_name,
-                            typename=convert_ctype_name_to_pytype_name(property.tp, self),
+                            typename=convert_ctype_name_to_pytype_name(
+                                property.tp, self.classes, self.exported_enums
+                            ),
                             is_readonly=property.readonly
                         )
                     )
@@ -1735,7 +1481,6 @@ class PythonWrapperGenerator(object):
             _registerType(classinfo)
 
         # step 3: generate the code for all the global functions
-        global_func_stubs = defaultdict(list)
         for ns_name, ns in sorted(self.namespaces.items()):
             if ns_name.split('.')[0] != 'cv':
                 continue
@@ -1744,22 +1489,12 @@ class PythonWrapperGenerator(object):
                     continue
                 code = func.gen_code(self)
                 self.code_funcs.write(code)
-                stub = func.generate_stub(self)
-                global_func_stubs[func.name].append(stub)
                 if func.is_static:
                     continue
                 create_function_node(self.cv_root, func, self)
 
             self.gen_namespace(ns_name)
             self.code_ns_init.write('CVPY_MODULE("{}", {});\n'.format(ns_name[2:], normalize_class_name(ns_name)))
-
-        # functions from different modules could have name collisions in the stub file
-        for func_stubs in global_func_stubs.values():
-            decorator = "@overload\n" if len(func_stubs) > 1 else ""
-            for stub in func_stubs:
-                if decorator and (not stub.startswith(decorator)):
-                    self.code_stubs.write(decorator)
-                self.code_stubs.write(stub)
 
         # step 4: generate the code for enum types
         enumlist = list(self.enums.values())
@@ -1798,7 +1533,6 @@ class PythonWrapperGenerator(object):
 
         generate_typing_stubs(self.cv_root, os.path.join(output_path, "stubs"))
         # That's it. Now save all the files
-        self.save(output_path, "__init__.pyi", self.code_stubs)
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
         self.save(output_path, "pyopencv_generated_funcs.h", self.code_funcs)
         self.save(output_path, "pyopencv_generated_enums.h", self.code_enums)

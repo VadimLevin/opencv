@@ -620,69 +620,6 @@ class FuncVariant(object):
                 self.args[argno].py_outputarg = True
         self.py_outlist = outlist
 
-    # def generate_stub(self, codegen, is_static=False):
-    #     # Function might have return type and output args
-    #     if len(self.py_outlist) > 1:
-    #         return_type = "Tuple[{}]".format(
-    #             ", ".join(convert_ctype_name_to_pytype_name(self.args[argno].tp, codegen)
-    #                       for _, argno in self.py_outlist)
-    #         )
-    #     elif len(self.py_outlist) == 1 and not self.isconstructor:
-    #         # In case of function has return value - use it,
-    #         # otherwise derive the return type from output arguments
-    #         if self.rettype:
-    #             return_type = convert_ctype_name_to_pytype_name(self.rettype, codegen)
-    #         else:
-    #             output_argno = self.py_outlist[0][-1]
-    #             assert output_argno < len(self.args), \
-    #                 "Function {0} args: {1}, output_argno: {2}".format(self.name,
-    #                                                                    ", ".join(arg.name for arg in self.args),
-    #                                                                    output_argno)
-    #             return_type = convert_ctype_name_to_pytype_name(self.args[output_argno].tp, codegen)
-    #     else:
-    #         return_type = "None"
-
-    #     arglist = []
-    #     outarr_list = []
-    #     has_input_umat = any((arg_info.inputarg and arg_info.tp in (
-    #         "UMat", "vector_UMat", "cuda::GpuMat")) for arg_info in self.args)
-    #     for arg_info in self.args:
-    #         if arg_info.tp in ignored_arg_types:
-    #             continue
-    #         if (not arg_info.inputarg) and (not arg_info.isbig()):
-    #             continue
-    #         arg_type = convert_ctype_name_to_pytype_name(arg_info.tp, codegen)
-    #         arg_default = " = ..." if arg_info.defval else ""
-    #         if not arg_info.inputarg:
-    #             # UMat/GpuMat output arguments are not Optional,
-    #             # unless there exists an UMat/GpuMat input argument
-    #             if has_input_umat or arg_info.tp in ("Mat", "vector_Mat"):
-    #                 arg_type = "Optional[{}]".format(arg_type)
-    #                 if not arg_info.defval:
-    #                     arg_default = " = None"
-    #             outarr_list.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
-    #         else:
-    #             if arg_info.defval and outarr_list:
-    #                 arglist.extend(outarr_list)
-    #                 outarr_list = []
-    #             arglist.append("{}: {}{}".format(arg_info.name, arg_type, arg_default))
-    #     if outarr_list:
-    #         arglist.extend(outarr_list)
-    #     annotated_args = ", ".join(arglist)
-
-    #     # `self` argument without type annotations is required for non-static class methods
-    #     if self.classname and not is_static:
-    #         # If there are input arguments for the method - prepend `self`.
-    #         if annotated_args:
-    #             annotated_args = "self, " + annotated_args
-    #         else:
-    #             # annotated args are `self`
-    #             annotated_args = "self"
-    #     return "def {func_name}({func_args}) -> {func_return_type}: ...".format(
-    #         func_name="__init__" if self.isconstructor else self.name,
-    #         func_args=annotated_args,
-    #         func_return_type=return_type)
-
 
 class FuncInfo(object):
     def __init__(self, classname, name, cname, isconstructor, namespace, is_static):
@@ -1203,14 +1140,12 @@ class PythonWrapperGenerator(object):
         else:
             self.enums[wname] = name
         const_decls = decl[3]
-        stub_enums = []
         for decl in const_decls:
             enumeration_node.add_constant(name=decl[0].split(".")[-1],
                                           value=decl[1])
 
             name = decl[0].replace("const ", "").strip()
             self.add_const(name, decl)
-            # stub generation
             _, classes, name = self.split_decl_name(name)
             name = '_'.join(chain(classes, (name, )))
 

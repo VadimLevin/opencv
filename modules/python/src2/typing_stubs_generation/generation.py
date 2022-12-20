@@ -1,20 +1,38 @@
+from __future__ import annotations
+
 __all__ = ("generate_typing_stubs", )
 
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Type, Callable, NamedTuple, Set
+from typing import Generator, Type, Callable, NamedTuple
 
 from .nodes import (ASTNode, NamespaceNode, ClassNode, FunctionNode,
                     EnumerationNode, ConstantNode)
 
 
-def generate_typing_stubs(root: NamespaceNode, output_root: Path):
+def generate_typing_stubs(root, output_root):
+    # type: (NamespaceNode, Path) -> None
+
     output_path = Path(output_root) / root.export_name
     output_path.mkdir(parents=True, exist_ok=True)
 
     output_stream = StringIO()
 
-    imported_dependencies: Set[str] = set()
+    imported_dependencies = set()  # type: set[str]
+    # Check if typing module is required due to @overload decorator usage
+    # Looking for module-level function with at least 1 overload
+    if _has_overload(root):
+        imported_dependencies.add("typing")
+        output_stream.write("import typing\n")
+    else:
+        # There is no module-level functions with overload, so traverse
+        # through module classes, including their inner-classes
+        for cls in _for_each_class(root):
+            if _has_overload(cls):
+                imported_dependencies.add("typing")
+                output_stream.write("import typing\n")
+                break
+
     for dep in root.dependencies:
         dep_parent = dep.parent
         assert dep_parent is not None, \
@@ -33,11 +51,15 @@ def generate_typing_stubs(root: NamespaceNode, output_root: Path):
                            output_stream, 0)
     # Special handling for enumerations...
     # Generate all enums from the module level
-    _generate_section_stub(StubSection("# Enumerations", EnumerationNode), root,
-                           output_stream, 0)
+    has_enums = _generate_section_stub(StubSection("# Enumerations", EnumerationNode),
+                                       root, output_stream, 0)
     # Collect all enums from class level and export them to module level
     for class_node in root.classes.values():
-        _generate_enums_from_classes_tree(class_node, output_stream, indent=0)
+        if _generate_enums_from_classes_tree(class_node, output_stream, indent=0):
+            has_enums = True
+    # 2 empty lines between enum and classes definitions
+    if has_enums:
+        output_stream.write("\n")
 
     for section in STUB_SECTIONS:
         _generate_section_stub(section, root, output_stream, 0)
@@ -59,8 +81,20 @@ STUB_SECTIONS = (
 )
 
 
-def _generate_section_stub(section: StubSection, node: ASTNode,
-                           output_stream: StringIO, indent: int) -> bool:
+def _generate_section_stub(section, node, output_stream, indent):
+    # type: (StubSection, ASTNode, StringIO, int) -> bool
+    """Generates stub for a single type of children nodes of the provided node.
+
+    Args:
+        section (StubSection): section identifier that carries section name and
+            type its nodes.
+        node (ASTNode): root node with children nodes used for
+        output_stream (StringIO): Output stream for section stub.
+        indent (int): Indent used for each line output to `output_stream`.
+
+    Returns:
+        bool: `True` if section has a content, `False` otherwise.
+    """
     if section.node_type not in node._children:
         return False
 
@@ -68,19 +102,73 @@ def _generate_section_stub(section: StubSection, node: ASTNode,
     if len(children) == 0:
         return False
 
-    padding = " " * indent
-    output_stream.write(padding)
+    output_stream.write(" " * indent)
     output_stream.write(section.name)
     output_stream.write("\n")
-    stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]
+    stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]  # type: StubGenerator
     for child in filter(lambda c: c.is_exported, children.values()):
         stub_generator(child, output_stream, indent)
     output_stream.write("\n")
     return True
 
 
-def _generate_class_stub(class_node: ClassNode,
-                         output_stream: StringIO, indent: int = 0):
+def _generate_class_stub(class_node, output_stream, indent=0):
+    # type: (ClassNode, StringIO, int) -> None
+    """Generates stub for the provided class node.
+
+    Rules:
+    - Read/write properties are converted to object attributes.
+    - Readonly properties are converted to functions decorated with `@property`.
+    - When return type of static functions matches class name - these functions
+      are treated as factory functions and annotated with `@classmethod`.
+    - In contrast to implicit `this` argument in C++ methods, in Python all
+      "normal" methods have explicit `self` as their first argument.
+    - Body of empty classes is replaced with `...`
+
+    Example:
+    ```cpp
+    struct Object : public BaseObject {
+        struct InnerObject {
+            int param;
+            bool param2;
+
+            float readonlyParam();
+        };
+
+        Object(int param, bool param2 = false);
+
+        Object(InnerObject obj);
+
+        static Object create();
+
+    };
+    ```
+    becomes
+    ```python
+    class Object(BaseObject):
+        class InnerObject:
+            param: int
+            param2: bool
+
+            @property
+            def readonlyParam() -> float: ...
+
+        @typing.override
+        def __init__(self, param: int, param2: bool = ...) -> None: ...
+
+        @typing.override
+        def __init__(self, obj: "Object.InnerObject") -> None: ...
+
+        @classmethod
+        def create(cls) -> Object: ...
+    ```
+
+    Args:
+        class_node (ClassNode): Class node to generate stub entry for.
+        output_stream (StringIO): Output stream for class stub.
+        indent (int, optional): Indent used for each line output to `output_stream`.
+            Defaults to 0.
+    """
     if len(class_node.bases) > 0:
         bases = "({})".format(', '.join(base.export_name for base in class_node.bases))
     else:
@@ -116,7 +204,7 @@ def _generate_class_stub(class_node: ClassNode,
             has_content = True
     if not has_content:
         output_stream.write(" " * (indent + 4))
-        output_stream.write("pass\n\n\n")
+        output_stream.write("...\n\n\n")
 
 
 def _generate_constant_stub(constant_node: ConstantNode,
@@ -129,8 +217,48 @@ def _generate_constant_stub(constant_node: ConstantNode,
     )
 
 
-def _generate_enumeration_stub(enumeration_node: EnumerationNode,
-                               output_stream: StringIO, indent: int = 0):
+def _generate_enumeration_stub(enumeration_node, output_stream, indent=0):
+    # type: (EnumerationNode, StringIO, int) -> None
+    """Generates stub for the provided enumeration node. In contrast to the
+    Python `enum.Enum` class, C++ enumerations are exported as module-level
+    (or class-level) constants.
+
+    Example:
+    ```cpp
+    enum Flags {
+        Flag1 = 0,
+        Flag2 = 1,
+        Flag3
+    };
+    ```
+    becomes
+    ```python
+    Flag1: int
+    Flag2: int
+    Flag3: int
+    Flags = int  # One of [Flag1, Flag2, Flag3]
+    ```
+
+    Unnamed enumerations don't export their names to Python:
+    ```cpp
+    enum {
+        Flag1 = 0,
+        Flag2 = 1
+    };
+    ```
+    becomes
+    ```python
+    Flag1: int
+    Flag2: int
+    ```
+
+    Args:
+        enumeration_node (EnumerationNode): Enumeration node to generate stub entry for.
+        output_stream (StringIO): Output stream for enumeration stub.
+        indent (int, optional): Indent used for each line output to `output_stream`.
+            Defaults to 0.
+    """
+
     for entry in enumeration_node.constants.values():
         _generate_constant_stub(entry, output_stream, indent)
     # Unnamed enumerations are skipped as definition
@@ -147,15 +275,16 @@ def _generate_enumeration_stub(enumeration_node: EnumerationNode,
     )
 
 
-def _generate_function_stub(function_node: FunctionNode,
-                            output_stream: StringIO, indent: int = 0):
+def _generate_function_stub(function_node, output_stream, indent=0):
+    # type (FunctionNode, StringIO, int) -> None
+
     decorators = []
     if function_node.is_classmethod:
         decorators.append(" " * indent + "@classmethod")
     elif function_node.is_static:
         decorators.append(" " * indent + "@staticmethod")
     if len(function_node.overloads) > 1:
-        decorators.append(" " * indent + "@overload")
+        decorators.append(" " * indent + "@typing.overload")
     for overload in function_node.overloads:
         # Annotate every function argument
         annotated_args = []
@@ -170,12 +299,10 @@ def _generate_function_stub(function_node: FunctionNode,
             ret_type = "None"
         elif isinstance(overload.return_type.types, str):
             ret_type = overload.return_type.types
+            if function_node.is_classmethod:
+                ret_type = '"{}"'.format(ret_type)
         else:
-            try:
-                ret_type = "Tuple[{}]".format(", ".join(overload.return_type.types))
-            except TypeError:
-                print(overload.return_type)
-                raise
+            ret_type = "tuple[{}]".format(", ".join(overload.return_type.types))
 
         output_stream.write(
             "{decorators}"
@@ -190,11 +317,22 @@ def _generate_function_stub(function_node: FunctionNode,
     output_stream.write("\n")
 
 
-def _generate_enums_from_classes_tree(class_node: ClassNode,
-                                      output_stream: StringIO,
-                                      indent: int = 0,
-                                      class_name_prefix: str = ""):
+def _generate_enums_from_classes_tree(class_node, output_stream,
+                                      indent=0, class_name_prefix=""):
+    # type: (ClassNode, StringIO, int, str) -> bool
+    """Recursively generates class-level enumerations starting from the `class_node`.
+
+    Args:
+        class_node (ClassNode): _description_
+        output_stream (StringIO): _description_
+        indent (int, optional): _description_. Defaults to 0.
+        class_name_prefix (str, optional): _description_. Defaults to "".
+
+    Returns:
+        bool: `True` if classes tree declares at least 1 enum, `False` otherwise.
+    """
     class_name_prefix = class_node.export_name + "_" + class_name_prefix
+    has_content = len(class_node.enumerations) > 0
     for enum_node in class_node.enumerations.values():
         # Prefix enumeration and its entries with class name
         enum_node.export_name = class_name_prefix + enum_node.export_name
@@ -203,14 +341,32 @@ def _generate_enums_from_classes_tree(class_node: ClassNode,
 
         _generate_enumeration_stub(enum_node, output_stream, indent)
     for cls in class_node.classes.values():
-        _generate_enums_from_classes_tree(cls, output_stream, indent,
-                                          class_name_prefix)
+        if _generate_enums_from_classes_tree(cls, output_stream, indent,
+                                             class_name_prefix):
+            has_content = True
+    return has_content
+
+
+def _has_overload(node):
+    # type: (NamespaceNode | ClassNode) -> bool
+    for func_node in node.functions.values():
+        if len(func_node.overloads):
+            return True
+    return False
+
+
+def _for_each_class(node):
+    # type: (NamespaceNode | ClassNode) -> Generator[ClassNode, None, None]
+    for cls in node.classes.values():
+        yield cls
+        if len(cls.classes):
+            yield from _for_each_class(cls)
 
 
 StubGenerator = Callable[[ASTNode, StringIO, int], None]
 
 
-NODE_TYPE_TO_STUB_GENERATOR: Dict[Type[ASTNode], StubGenerator] = {
+NODE_TYPE_TO_STUB_GENERATOR = {  # type: dict[Type[ASTNode], StubGenerator]
     ClassNode: _generate_class_stub,
     ConstantNode: _generate_constant_stub,
     EnumerationNode: _generate_enumeration_stub,

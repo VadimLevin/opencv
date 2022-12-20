@@ -16,13 +16,15 @@ else:
 
 
 from typing_stubs_generation import (
-    convert_ctype_name_to_pytype_name,
+    convert_ctype_name_to_pytype,
     generate_typing_stubs,
     ClassProperty,
     NamespaceNode,
     ClassNode,
     FunctionNode,
     EnumerationNode,
+    OptionalTypeNode,
+    TupleTypeNode,
     SymbolName,
     find_scope,
     ScopeNotFoundError
@@ -957,7 +959,7 @@ class Namespace(object):
         self.consts = {}
 
 
-def create_function_node_in_scope(scope, function, codegen):
+def create_function_node_in_scope(scope, function):
     # type (NamespaceNode | ClassNode, FuncInfo, PythonWrapperGenerator) -> FunctionNode
     def prepare_overload_arguments_and_return_type(variant):
         # type (FuncVariant) -> list[FunctionNode.Arg], FunctionNode.RetType
@@ -967,24 +969,20 @@ def create_function_node_in_scope(scope, function, codegen):
         # but `variant.py_noptargs` refers to position in `py_arglist`
         for i, (_, argno) in enumerate(variant.py_arglist):
             arg_info = variant.args[argno]
-            typename = convert_ctype_name_to_pytype_name(arg_info.tp,
-                                                         codegen.classes,
-                                                         codegen.exported_enums)
+            type_node = convert_ctype_name_to_pytype(arg_info.tp)
             default_value = None
             if len(arg_info.defval):
                 default_value = arg_info.defval
             # If argument is optional and can be None - make its type optional
             if variant.is_arg_optional(i):
                 if arg_info.py_outputarg:
-                    typename += " | None"
+                    type_node = OptionalTypeNode(type_node)
                     default_value = "None"
-                elif arg_info.isbig() and "None" not in typename:
+                elif arg_info.isbig() and "None" not in type_node.typename:
                     # but avoid duplication of the optioness
-                    typename += " | None"
-            # assert function.name != "PCACompute" or arg_info.name != "mean" or "None" not in typename, \
-            #     f"{typename=}, {arg_info.defval=}, {default_value=} {arg_info.py_outputarg=} {variant.py_noptargs=}"
+                    type_node = OptionalTypeNode(type_node)
             arguments.append(
-                FunctionNode.Arg(arg_info.name, typename=typename,
+                FunctionNode.Arg(arg_info.name, type_node=type_node,
                                  default_value=default_value)
             )
         if function.isconstructor:
@@ -993,9 +991,10 @@ def create_function_node_in_scope(scope, function, codegen):
         # Function has more than 1 output argument, so its return type is a tuple
         if len(variant.py_outlist) > 1:
             return arguments, FunctionNode.RetType(
-                tuple(
-                    convert_ctype_name_to_pytype_name(variant.args[argno].tp, codegen.classes, codegen.exported_enums)
-                    for _, argno in variant.py_outlist
+                TupleTypeNode(
+                    "return_type",
+                    tuple(convert_ctype_name_to_pytype(variant.args[argno].tp)
+                          for _, argno in variant.py_outlist)
                 )
             )
         # Function with 1 output argument in Python
@@ -1003,16 +1002,13 @@ def create_function_node_in_scope(scope, function, codegen):
             # Can be represented as a function with a non-void return type in C++
             if variant.rettype:
                 return arguments, FunctionNode.RetType(
-                    convert_ctype_name_to_pytype_name(variant.rettype,
-                                                      codegen.classes,
-                                                      codegen.exported_enums)
+                    convert_ctype_name_to_pytype(variant.rettype)
                 )
             # or a function with void return type and output argument type
             # such non-const reference
             ret_type = variant.args[variant.py_outlist[0][1]].tp
             return arguments, FunctionNode.RetType(
-                convert_ctype_name_to_pytype_name(ret_type, codegen.classes,
-                                                  codegen.exported_enums)
+                convert_ctype_name_to_pytype(ret_type)
             )
         # Function without output types returns None in Python
         return arguments, None
@@ -1025,7 +1021,7 @@ def create_function_node_in_scope(scope, function, codegen):
         arguments, ret_type = prepare_overload_arguments_and_return_type(variant)
         if isinstance(scope, ClassNode):
             if function.is_static:
-                if ret_type is not None and ret_type.types.endswith(scope.name):
+                if ret_type is not None and ret_type.typename.endswith(scope.name):
                     function_node.is_classmethod = True
                     arguments.insert(0, FunctionNode.Arg("cls"))
                 else:
@@ -1036,8 +1032,8 @@ def create_function_node_in_scope(scope, function, codegen):
     return function_node
 
 
-def create_function_node(root, function, codegen):
-    # type: (NamespaceNode, FuncInfo, PythonWrapperGenerator) -> FunctionNode
+def create_function_node(root, function):
+    # type: (NamespaceNode, FuncInfo) -> FunctionNode
 
     func_symbol_name = SymbolName(
         function.namespace.split(".") if len(function.namespace) else (),
@@ -1045,7 +1041,7 @@ def create_function_node(root, function, codegen):
         function.name
     )
     return create_function_node_in_scope(find_scope(root, func_symbol_name),
-                                         function, codegen)
+                                         function)
 
 
 class PythonWrapperGenerator(object):
@@ -1389,9 +1385,9 @@ class PythonWrapperGenerator(object):
                     properties.append(
                         ClassProperty(
                             name=export_property_name,
-                            typename=convert_ctype_name_to_pytype_name(
-                                property.tp, self.classes, self.exported_enums
-                            ),
+                            typename=convert_ctype_name_to_pytype(
+                                property.tp
+                            ).typename,
                             is_readonly=property.readonly
                         )
                     )
@@ -1399,9 +1395,9 @@ class PythonWrapperGenerator(object):
                                              properties=properties)
                 class_node.export_name = classinfo.export_name
                 if classinfo.constructor is not None:
-                    create_function_node_in_scope(class_node, classinfo.constructor, self)
+                    create_function_node_in_scope(class_node, classinfo.constructor)
                 for method in classinfo.methods.values():
-                    create_function_node_in_scope(class_node, method, self)
+                    create_function_node_in_scope(class_node, method)
 
                 if classinfo.base and classinfo.base in self.classes:
                     base_classinfo = self.classes[classinfo.base]
@@ -1426,7 +1422,7 @@ class PythonWrapperGenerator(object):
                 self.code_funcs.write(code)
                 if func.is_static:
                     continue
-                create_function_node(self.cv_root, func, self)
+                create_function_node(self.cv_root, func)
 
             self.gen_namespace(ns_name)
             self.code_ns_init.write('CVPY_MODULE("{}", {});\n'.format(ns_name[2:], normalize_class_name(ns_name)))

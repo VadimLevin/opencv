@@ -287,22 +287,11 @@ def _generate_function_stub(function_node, output_stream, indent=0):
         decorators.append(" " * indent + "@typing.overload")
     for overload in function_node.overloads:
         # Annotate every function argument
-        annotated_args = []
-        for arg in overload.arguments:
-            annotated_args.append(arg.name)
-            if arg.typename is not None:
-                annotated_args[-1] += (": " + arg.typename)
-            if arg.default_value is not None:
-                annotated_args[-1] += " = ..."
+        annotated_args = (arg.annotated_form for arg in overload.arguments)
         # And convert return type to the actual type
-        if overload.return_type is None:
-            ret_type = "None"
-        elif isinstance(overload.return_type.types, str):
-            ret_type = overload.return_type.types
-            if function_node.is_classmethod:
-                ret_type = '"{}"'.format(ret_type)
-        else:
-            ret_type = "tuple[{}]".format(", ".join(overload.return_type.types))
+        ret_type = getattr(overload.return_type, "typename", "None")
+        if function_node.is_classmethod:
+            ret_type = '"{}"'.format(ret_type)
 
         output_stream.write(
             "{decorators}"

@@ -1,10 +1,14 @@
-from typing import Tuple, Dict, Sequence
+from __future__ import annotations
 
 from .aliases import ALIASES
+from .nodes.type_node import (
+    TypeNode, PrimitiveTypeNode, UnionTypeNode, SequenceTypeNode,
+    ClassTypeNode, TupleTypeNode
+)
 
 
 def replace_template_parameters_with_placeholders(string: str) \
-        -> Tuple[str, Tuple[str, ...]]:
+        -> tuple[str, tuple[str, ...]]:
     """Replaces template parameters with `format` placeholders for all template
     instantiations in provided string.
     Only outermost template parameters are replaced.
@@ -131,39 +135,6 @@ def normalize_ctype_name(typename: str) -> str:
     return typename.strip()
 
 
-_CTYPE_TO_PYTYPE_DIRECT_SUBSTITUTION_MAP = {
-    "char": "str",
-    "uchar": "int",
-    "unsigned": "int",
-    "String": "str",
-    "string": "str",
-    "c_string": "str",
-    "double": "float",
-    "int64": "int",
-    "size_t": "int",
-    "void": "None",
-    "vector<uchar>": "numpy.ndarray[Any, numpy.dtype[numpy.uint8]]",
-    "vector_uchar": "numpy.ndarray[Any, numpy.dtype[numpy.uint8]]",
-    "GMat2": "tuple[GMat, GMat]",
-    "GOpaque": "GOpaqueT",
-    "GArray": "GArrayT",
-    "GCompileArgs": "Sequence[GCompileArg]",
-    "GTypesInfo": "Sequence[GTypeInfo]",
-    "GRunArgs": "Sequence[GRunArg]",
-    "GMetaArgs": "Sequence[GMetaArg]",
-    "GProtoArgs": "Sequence[GProtoArg]",
-    "GOptRunArgs": "Sequence[GOptRunArg]",
-    "detail_ExtractArgsCallback": "Callable[[Sequence[GTypeInfo]], Sequence[GRunArg]]",
-    "detail_ExtractMetaCallback": "Callable[[Sequence[GTypeInfo]], Sequence[GMetaArg]]",
-    "Prims": "Sequence[Prim]",
-    "LayerId": "DictValue",
-    "flann_IndexParams": "dict[str, bool | int | float | str]",
-    "flann_SearchParams": "dict[str, bool | int | float | str]",
-    "cvflann_flann_distance_t": "int",
-    "cvflann_flann_algorithm_t": "int",
-}
-
-
 def is_tuple_type(typename: str) -> bool:
     return typename.startswith("tuple") or typename.startswith("pair")
 
@@ -196,10 +167,8 @@ def _is_template_instantiation(typename: str) -> bool:
     return False
 
 
-def convert_template_arguments_to_pytypes_arguments(template_args_str: str,
-                                                    known_classes: Dict[str, str],
-                                                    known_enumerations: Dict[str, str]) \
-        -> Sequence[str]:
+def convert_template_arguments_to_pytypes_arguments(template_args_str: str) \
+        -> list[TypeNode]:
     pytypes = []
     # If template arguments contains types that are also templates
     # - replace it with format placeholder and than reconstruct original type.
@@ -215,104 +184,91 @@ def convert_template_arguments_to_pytypes_arguments(template_args_str: str,
         if _is_template_instantiation(template_arg):
             template_arg = template_arg.format(templated_args_types[template_index])
             template_index += 1
-        pytypes.append(
-            convert_ctype_name_to_pytype_name(template_arg, known_classes,
-                                              known_enumerations)
-        )
+        pytypes.append(convert_ctype_name_to_pytype(template_arg))
     return pytypes
 
 
-def convert_ctype_name_to_pytype_name(typename: str,
-                                      known_classes: Dict[str, str],
-                                      known_enumerations: Dict[str, str]) -> str:
-    """Converts C++ type name to corresponding Python type name
+def convert_ctype_name_to_pytype(typename: str,
+                                 original_ctype_name: str | None = None) -> TypeNode:
+    """Converts C++ type name to corresponding Python type
 
     Args:
         typename (str): C++ type name to convert.
-        known_classes (Dict[str]): Mapping between C++ classes names and their
-            names exposed to Python.
-        known_enumerations (Dict[str]): Mapping between C++ enumerations names
-            and their names exposed to Python.
 
     Returns:
-        str: typename that should be exposed to Python
+        TypeNode: type node that wraps C++ type exposed to Python
     """
 
-    original_ctype_name = typename
+    if original_ctype_name is None:
+        original_ctype_name = typename
+
     typename = normalize_ctype_name(typename.strip())
 
     # if typename is one of the built-in Python types
-    if typename in ("float", "int", "bool"):
-        return typename
+    if typename in ("float", "int", "bool", "string"):
+        return getattr(PrimitiveTypeNode, typename)(original_ctype_name)
 
-    # if typename has a direct substitution
-    pytype = _CTYPE_TO_PYTYPE_DIRECT_SUBSTITUTION_MAP.get(typename)
-    if pytype is not None:
-        return pytype
-
-    # if typename is a known alias
-    type_alias = ALIASES.get(typename)
-    if type_alias is not None:
-        return type_alias.export_name
+    # if typename is a known alias or direct substitution
+    type_node = ALIASES.get(typename)
+    if type_node is not None:
+        type_node.ctype_name = original_ctype_name
+        return type_node
 
     # explicit handling of special G-Api Types
         # GAPI types
     if typename.startswith("GArray_") or typename.startswith("GArray<"):
-        return "GArrayT"
+        return ClassTypeNode("GArrayT")
     if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
-        return "GOpaqueT"
+        return ClassTypeNode("GOpaqueT")
     if typename.startswith("util_variant"):
         variant_types = get_template_instantiation_type(typename)
-        return " | ".join(
-            convert_template_arguments_to_pytypes_arguments(variant_types,
-                                                            known_classes,
-                                                            known_enumerations)
+        return UnionTypeNode(
+            original_ctype_name,
+            items=convert_template_arguments_to_pytypes_arguments(variant_types)
         )
 
     if is_pointer_type(typename):
         # Case for "type*", "type_Ptr", "typePtr"
         for suffix in ("*", "_Ptr", "Ptr"):
             if typename.endswith(suffix):
-                return convert_ctype_name_to_pytype_name(typename[:-len(suffix)],
-                                                         known_classes,
-                                                         known_enumerations)
+                return convert_ctype_name_to_pytype(typename[:-len(suffix)],
+                                                    original_ctype_name)
         # Case Ptr<Type>
         if _is_template_instantiation(typename):
-            return convert_ctype_name_to_pytype_name(
-                get_template_instantiation_type(typename), known_classes,
-                known_enumerations
+            return convert_ctype_name_to_pytype(
+                get_template_instantiation_type(typename),
+                original_ctype_name
             )
         # Case Ptr_Type
-        return convert_ctype_name_to_pytype_name(
-            typename.split("_", maxsplit=1)[-1], known_classes, known_enumerations
+        return convert_ctype_name_to_pytype(
+            typename.split("_", maxsplit=1)[-1],
+            original_ctype_name
         )
 
     # if typename refers to a sequence type
     if is_sequence_type(typename):
         # Recursively convert sequence element type
         if _is_template_instantiation(typename):
-            inner_sequence_type = convert_ctype_name_to_pytype_name(
-                get_template_instantiation_type(typename), known_classes,
-                known_enumerations
+            inner_sequence_type = convert_ctype_name_to_pytype(
+                get_template_instantiation_type(typename)
             )
         else:
             # Handle vector_Type cases
             # maxsplit=1 is required to handle sequence of sequence e.g:
             # vector_vector_Mat -> Sequence[Sequence[Mat]]
-            inner_sequence_type = convert_ctype_name_to_pytype_name(
-                typename.split("_", 1)[-1], known_classes, known_enumerations
+            inner_sequence_type = convert_ctype_name_to_pytype(
+                typename.split("_", 1)[-1]
             )
-        return "Sequence[" + inner_sequence_type + "]"
+        return SequenceTypeNode(original_ctype_name, inner_sequence_type)
 
     if is_tuple_type(typename):
         tuple_types = get_template_instantiation_type(typename)
-        return "tuple[{}]".format(", ".join(
-            convert_template_arguments_to_pytypes_arguments(
-                tuple_types, known_classes, known_enumerations
-            )
-        ))
+        return TupleTypeNode(
+            original_ctype_name,
+            items=convert_template_arguments_to_pytypes_arguments(tuple_types)
+        )
 
-    return typename
+    return ClassTypeNode(original_ctype_name, typename)
 
 
 if __name__ == "__main__":

@@ -208,17 +208,20 @@ def _generate_class_stub(class_node, output_stream, indent=0):
 
 
 def _generate_constant_stub(constant_node: ConstantNode,
-                            output_stream: StringIO, indent: int = 0):
+                            output_stream: StringIO, indent: int = 0,
+                            extra_export_prefix: str = ""):
     output_stream.write(
-        "{indent}{name}: int\n".format(
+        "{indent}{prefix}{name}: int\n".format(
+            prefix=extra_export_prefix,
             name=constant_node.export_name,
             indent=" " * indent
         )
     )
 
 
-def _generate_enumeration_stub(enumeration_node, output_stream, indent=0):
-    # type: (EnumerationNode, StringIO, int) -> None
+def _generate_enumeration_stub(enumeration_node: EnumerationNode,
+                               output_stream: StringIO, indent: int = 0,
+                               extra_export_prefix: str = ""):
     """Generates stub for the provided enumeration node. In contrast to the
     Python `enum.Enum` class, C++ enumerations are exported as module-level
     (or class-level) constants.
@@ -252,6 +255,20 @@ def _generate_enumeration_stub(enumeration_node, output_stream, indent=0):
     Flag2: int
     ```
 
+    Scoped enumeration adds its name before each item name:
+    ```cpp
+    enum struct ScopedEnum {
+        Flag1,
+        Flag2
+    };
+    ```
+    becomes
+    ```python
+    ScopedEnum_Flag1: int
+    ScopedEnum_Flag2: int
+    ScopedEnum = int # One of [ScopedEnum_Flag1, ScopedEnum_Flag2]
+    ```
+
     Args:
         enumeration_node (EnumerationNode): Enumeration node to generate stub entry for.
         output_stream (StringIO): Output stream for enumeration stub.
@@ -259,14 +276,18 @@ def _generate_enumeration_stub(enumeration_node, output_stream, indent=0):
             Defaults to 0.
     """
 
+    entries_extra_prefix = extra_export_prefix
+    if enumeration_node.is_scoped:
+        entries_extra_prefix += enumeration_node.export_name + "_"
     for entry in enumeration_node.constants.values():
-        _generate_constant_stub(entry, output_stream, indent)
+        _generate_constant_stub(entry, output_stream, indent, entries_extra_prefix)
     # Unnamed enumerations are skipped as definition
     if enumeration_node.export_name.endswith("<unnamed>"):
         output_stream.write("\n")
         return
     output_stream.write(
-        "{indent}{name} = int  # One of [{entries}]\n\n".format(
+        "{indent}{export_prefix}{name} = int  # One of [{entries}]\n\n".format(
+            export_prefix=extra_export_prefix,
             name=enumeration_node.export_name,
             entries=", ".join(entry.export_name
                               for entry in enumeration_node.constants.values()),
@@ -323,12 +344,8 @@ def _generate_enums_from_classes_tree(class_node, output_stream,
     class_name_prefix = class_node.export_name + "_" + class_name_prefix
     has_content = len(class_node.enumerations) > 0
     for enum_node in class_node.enumerations.values():
-        # Prefix enumeration and its entries with class name
-        enum_node.export_name = class_name_prefix + enum_node.export_name
-        for entry_node in enum_node.constants.values():
-            entry_node.export_name = class_name_prefix + entry_node.export_name
-
-        _generate_enumeration_stub(enum_node, output_stream, indent)
+        _generate_enumeration_stub(enum_node, output_stream, indent,
+                                   class_name_prefix)
     for cls in class_node.classes.values():
         if _generate_enums_from_classes_tree(cls, output_stream, indent,
                                              class_name_prefix):

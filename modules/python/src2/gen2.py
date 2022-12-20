@@ -1122,12 +1122,16 @@ class PythonWrapperGenerator(object):
 
     def add_enum(self, name: str, decl):
         enumeration_name = SymbolName.parse(name, self.parser.namespaces)
+        is_scoped_enum = decl[0].startswith("enum class") \
+            or decl[0].startswith("enum struct")
         if enumeration_name in self.exported_enums:
             assert enumeration_name.name == "<unnamed>", \
-                "Trying to export 2 enums with same symbol name: {}".format(enumeration_name)
+                "Trying to export 2 enums with same symbol " \
+                "name: {}".format(enumeration_name)
             enumeration_node = self.exported_enums[enumeration_name]
         else:
-            enumeration_node = EnumerationNode(enumeration_name.name)
+            enumeration_node = EnumerationNode(enumeration_name.name,
+                                               is_scoped_enum)
             self.exported_enums[enumeration_name] = enumeration_node
 
         wname = normalize_class_name(name)

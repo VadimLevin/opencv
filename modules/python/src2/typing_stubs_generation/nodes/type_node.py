@@ -162,6 +162,12 @@ class AliasTypeNode(TypeNode):
                    AliasRefTypeNode(alias_ctype_name, alias_export_name),
                    export_name, comment)
 
+    @classmethod
+    def dict_(cls, ctype_name: str, key_type: TypeNode, value_type: TypeNode,
+              export_name: str | None = None, comment: str | None = None):
+        return cls(ctype_name, DictTypeNode(ctype_name, key_type, value_type),
+                   export_name, comment)
+
 
 class NDArrayTypeNode(TypeNode):
     def __init__(self, ctype_name: str, shape: tuple[int, ...] | None = None,
@@ -273,12 +279,18 @@ class OptionalTypeNode(UnionTypeNode):
         super().__init__(value.ctype_name, (value, NoneTypeNode(value.ctype_name)))
 
 
-class CallableTypeNode(TypeNode):
+class CallableTypeNode(CollectionTypeNode):
     def __init__(self, ctype_name: str, argument_type: TypeNode,
                  return_type: TypeNode = NoneTypeNode("void")) -> None:
-        super().__init__(ctype_name)
-        self.argument_type = argument_type
-        self.return_type = return_type
+        super().__init__(ctype_name, (argument_type, return_type))
+
+    @property
+    def argument_type(self):
+        return self.items[0]
+
+    @property
+    def return_type(self):
+        return self.items[1]
 
     @property
     def typename(self) -> str:
@@ -286,25 +298,36 @@ class CallableTypeNode(TypeNode):
                                            self.return_type.typename)
 
     @property
+    def type_format(self) -> str:
+        return "Callable[[{}]"
+
+    @property
+    def types_separator(self) -> str:
+        return "], "
+
+    @property
     def required_imports(self) -> Generator[str, None, None]:
         yield "from typing import Callable"
-        yield from self.argument_type.required_imports
-        yield from self.return_type.required_imports
+        yield from super().required_imports
 
 
-class DictTypeNode(TypeNode):
+class DictTypeNode(CollectionTypeNode):
     def __init__(self, ctype_name: str, key_type: TypeNode,
                  value_type: TypeNode) -> None:
-        super().__init__(ctype_name)
-        self.key_type = key_type
-        self.value_type = value_type
+        super().__init__(ctype_name, (key_type, value_type))
 
     @property
-    def typename(self) -> str:
-        return "dict[{}, {}]".format(self.key_type.typename,
-                                     self.value_type.typename)
+    def key_type(self) -> TypeNode:
+        return self.items[0]
 
     @property
-    def required_imports(self) -> Generator[str, None, None]:
-        yield from self.key_type.required_imports
-        yield from self.value_type.required_imports
+    def value_type(self) -> TypeNode:
+        return self.items[1]
+
+    @property
+    def type_format(self):
+        return "dict[{}]"
+
+    @property
+    def types_separator(self):
+        return ", "

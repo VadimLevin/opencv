@@ -11,8 +11,7 @@ from .aliases import ALIASES
 from .nodes import (ASTNode, NamespaceNode, ClassNode, FunctionNode,
                     EnumerationNode, ConstantNode)
 from .nodes.type_node import (TypeNode, AliasTypeNode, AliasRefTypeNode,
-                              CollectionTypeNode, DictTypeNode,
-                              CallableTypeNode)
+                              CollectionTypeNode)
 
 
 def generate_aliases_module(root: NamespaceNode, output_root: Path):
@@ -30,16 +29,6 @@ def generate_aliases_module(root: NamespaceNode, output_root: Path):
         if isinstance(alias_node.value, CollectionTypeNode):
             # Check if collection contains a link to another alias
             register_alias_links_from_collection(alias_node.value)
-        elif isinstance(alias_node.value, DictTypeNode):
-            if isinstance(alias_node.value.key_type, CollectionTypeNode):
-                register_alias_links_from_collection(alias_node.value.key_type)
-            if isinstance(alias_node.value.value_type, CollectionTypeNode):
-                register_alias_links_from_collection(alias_node.value.value_type)
-        elif isinstance(alias_node.value, CallableTypeNode):
-            if isinstance(alias_node.value.argument_type, CollectionTypeNode):
-                register_alias_links_from_collection(alias_node.value.argument_type)
-            if isinstance(alias_node.value.return_type, CollectionTypeNode):
-                register_alias_links_from_collection(alias_node.value.return_type)
 
         aliases[typename] = alias_node.value.typename
         if alias_node.comment is not None:
@@ -328,9 +317,8 @@ def _generate_enumeration_stub(enumeration_node: EnumerationNode,
     )
 
 
-def _generate_function_stub(function_node, output_stream, indent=0):
-    # type (FunctionNode, StringIO, int) -> None
-
+def _generate_function_stub(function_node: FunctionNode,
+                            output_stream: StringIO, indent: int = 0):
     decorators = []
     if function_node.is_classmethod:
         decorators.append(" " * indent + "@classmethod")
@@ -343,7 +331,8 @@ def _generate_function_stub(function_node, output_stream, indent=0):
         annotated_args = (arg.annotated_form for arg in overload.arguments)
         # And convert return type to the actual type
         ret_type = getattr(overload.return_type, "typename", "None")
-        if function_node.is_classmethod:
+
+        if function_node.parent.name == ret_type: # type: ignore
             ret_type = '"{}"'.format(ret_type)
 
         output_stream.write(

@@ -1,7 +1,7 @@
 from .nodes.type_node import (
     AliasTypeNode, AliasRefTypeNode, PrimitiveTypeNode,
     ClassTypeNode, NDArrayTypeNode, NoneTypeNode, SequenceTypeNode,
-    TupleTypeNode, DictTypeNode, UnionTypeNode, AnyTypeNode
+    TupleTypeNode, UnionTypeNode, AnyTypeNode
 )
 
 
@@ -87,6 +87,8 @@ _ALIASES = (
                             comment="Required length is 6"),
     AliasTypeNode.class_("FeatureDetector", "Feature2D",
                          export_name="FeatureDetector"),
+    AliasTypeNode.class_("DescriptorExtractor", "Feature2D",
+                         export_name="DescriptorExtractor"),
     AliasTypeNode.class_("FeatureExtractor", "Feature2D",
                          export_name="FeatureExtractor"),
     AliasTypeNode.union_("GProtoArg",
@@ -148,22 +150,22 @@ _ALIASES = (
     PrimitiveTypeNode.int_("flann_flann_distance_t"),
     PrimitiveTypeNode.int_("cvflann_flann_algorithm_t"),
     PrimitiveTypeNode.int_("flann_flann_algorithm_t"),
-    DictTypeNode("flann_IndexParams",
-                 key_type=PrimitiveTypeNode.str_(),
-                 value_type=UnionTypeNode("flann_IndexParams::value", items=(
-                     PrimitiveTypeNode.bool_(),
-                     PrimitiveTypeNode.int_(),
-                     PrimitiveTypeNode.float_(),
-                     PrimitiveTypeNode.str_())
-                 )),
-    DictTypeNode("flann_SearchParams",
-                 key_type=PrimitiveTypeNode.str_(),
-                 value_type=UnionTypeNode("flann_IndexParams::value", items=(
-                     PrimitiveTypeNode.bool_(),
-                     PrimitiveTypeNode.int_(),
-                     PrimitiveTypeNode.float_(),
-                     PrimitiveTypeNode.str_())
-                 )),
+    AliasTypeNode.dict_("flann_IndexParams",
+                        key_type=PrimitiveTypeNode.str_(),
+                        value_type=UnionTypeNode("flann_IndexParams::value", items=(
+                            PrimitiveTypeNode.bool_(),
+                            PrimitiveTypeNode.int_(),
+                            PrimitiveTypeNode.float_(),
+                            PrimitiveTypeNode.str_())
+                        ), export_name="IndexParams"),
+    AliasTypeNode.dict_("flann_SearchParams",
+                        key_type=PrimitiveTypeNode.str_(),
+                        value_type=UnionTypeNode("flann_IndexParams::value", items=(
+                            PrimitiveTypeNode.bool_(),
+                            PrimitiveTypeNode.int_(),
+                            PrimitiveTypeNode.float_(),
+                            PrimitiveTypeNode.str_())
+                        ), export_name="SearchParams"),
 )
 
 ALIASES = dict(zip((alias.ctype_name for alias in _ALIASES), _ALIASES))

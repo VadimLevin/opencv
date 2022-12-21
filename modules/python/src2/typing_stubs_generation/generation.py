@@ -375,8 +375,7 @@ def _generate_enums_from_classes_tree(class_node, output_stream,
     return has_content
 
 
-def _has_overload(node):
-    # type: (NamespaceNode | ClassNode) -> bool
+def check_overload_presence(node: NamespaceNode | ClassNode) -> bool:
     for func_node in node.functions.values():
         if len(func_node.overloads):
             return True
@@ -410,16 +409,19 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
     required_imports: set[str] = set()
     # Check if typing module is required due to @overload decorator usage
     # Looking for module-level function with at least 1 overload
-    if _has_overload(root):
-        required_imports.add("import typing")
-    else:
-        # There is no module-level functions with overload, so traverse
-        # through module classes, including their inner-classes
-        for cls in _for_each_class(root):
-            if _has_overload(cls):
-                required_imports.add("import typing")
-                break
+    has_overload = check_overload_presence(root)
+    # if there is no module-level functions with overload, check its presence
+    # during class traversing, including their inner-classes
+    for cls in _for_each_class(root):
+        if not has_overload and check_overload_presence(cls):
+            has_overload = True
+            required_imports.add("import typing")
+        # Add required imports for class properties
+        for prop in cls.properties:
+            _add_required_imports(prop.type_node, required_imports)
 
+    if has_overload:
+        required_imports.add("import typing")
     # Importing external argument dependencies
     for overload in _for_each_function_overload(root):
         for arg in filter(lambda a: a.type_node is not None, overload.arguments):
@@ -438,19 +440,16 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
             required_import = "from {} import {}".format(
                 dep_parent.full_export_name, dep.export_name
             )
-            if required_import not in required_imports:
-                required_imports.add(required_import)
+            required_imports.add(required_import)
     return required_imports
 
 
 def _add_required_imports(type_node: TypeNode, required_imports: set[str]):
     if isinstance(type_node, AliasTypeNode):
         required_import = "from cv2.typing import " + type_node.typename
-        if required_import not in required_imports:
-            required_imports.add(required_import)
+        required_imports.add(required_import)
     else:
-        for required_import in filter(lambda ri: ri not in required_imports,
-                                      type_node.required_imports):
+        for required_import in type_node.required_imports:
             required_imports.add(required_import)
 
 

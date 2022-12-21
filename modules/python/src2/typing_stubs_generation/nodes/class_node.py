@@ -1,4 +1,6 @@
-from typing import Tuple, Type, Dict, Optional, Iterable, cast, List, Sequence, NamedTuple
+from __future__ import annotations
+
+from typing import Type, Iterable, cast, Sequence, NamedTuple
 import itertools
 
 import weakref
@@ -9,22 +11,28 @@ from .function_node import FunctionNode
 from .enumeration_node import EnumerationNode
 from .constant_node import ConstantNode
 
+from .type_node import TypeNode
+
 
 class ClassProperty(NamedTuple):
     name: str
-    typename: str
+    type_node: TypeNode
     is_readonly: bool
+
+    @property
+    def typename(self) -> str:
+        return self.type_node.typename
 
 
 class ClassNode(ASTNode):
-    def __init__(self, name: str, parent: Optional["ASTNode"] = None,
-                 export_name: Optional[str] = None,
+    def __init__(self, name: str, parent: ASTNode | None = None,
+                 export_name: str | None = None,
                  bases: Sequence["weakref.ProxyType[ClassNode]"] = (),
                  properties: Sequence[ClassProperty] = ()) -> None:
         super().__init__(name, parent, export_name)
         self.bases = list(bases)
         self.properties = properties
-        self.__derived: List["weakref.ProxyType[ClassNode]"] = []
+        self.__derived: list["weakref.ProxyType[ClassNode]"] = []
         for base in self.bases:
             base.add_derived_class(self)
 
@@ -33,7 +41,7 @@ class ClassNode(ASTNode):
         return -1 - sum(derived.weight for derived in self.__derived)
 
     @property
-    def children_types(self) -> Tuple[Type[ASTNode], ...]:
+    def children_types(self) -> tuple[Type[ASTNode], ...]:
         return (ClassNode, FunctionNode, EnumerationNode, ConstantNode)
 
     @property
@@ -44,19 +52,19 @@ class ClassNode(ASTNode):
         )
 
     @property
-    def classes(self) -> Dict[str, "ClassNode"]:
+    def classes(self) -> dict[str, "ClassNode"]:
         return self._children[ClassNode]
 
     @property
-    def functions(self) -> Dict[str, FunctionNode]:
+    def functions(self) -> dict[str, FunctionNode]:
         return self._children[FunctionNode]
 
     @property
-    def enumerations(self) -> Dict[str, EnumerationNode]:
+    def enumerations(self) -> dict[str, EnumerationNode]:
         return self._children[EnumerationNode]
 
     @property
-    def constants(self) -> Dict[str, ConstantNode]:
+    def constants(self) -> dict[str, ConstantNode]:
         return self._children[ConstantNode]
 
     def add_class(self, name: str,
@@ -66,7 +74,7 @@ class ClassNode(ASTNode):
                                properties=properties)
 
     def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
-                     return_type: Optional[FunctionNode.RetType] = None,
+                     return_type: FunctionNode.RetType | None = None,
                      is_static: bool = False) -> FunctionNode:
         arguments = list(arguments)
         if return_type is not None:

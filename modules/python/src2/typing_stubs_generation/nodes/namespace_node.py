@@ -1,4 +1,6 @@
-from typing import Tuple, Type, Dict, Iterable, Sequence, Optional
+from __future__ import annotations
+
+from typing import Type, Iterable, Sequence
 import itertools
 import weakref
 
@@ -12,7 +14,7 @@ from .constant_node import ConstantNode
 
 class NamespaceNode(ASTNode):
     @property
-    def children_types(self) -> Tuple[Type[ASTNode], ...]:
+    def children_types(self) -> tuple[Type[ASTNode], ...]:
         return (NamespaceNode, ClassNode, FunctionNode,
                 EnumerationNode, ConstantNode)
 
@@ -24,23 +26,23 @@ class NamespaceNode(ASTNode):
         )))
 
     @property
-    def namespaces(self) -> Dict[str, "NamespaceNode"]:
+    def namespaces(self) -> dict[str, "NamespaceNode"]:
         return self._children[NamespaceNode]
 
     @property
-    def classes(self) -> Dict[str, ClassNode]:
+    def classes(self) -> dict[str, ClassNode]:
         return self._children[ClassNode]
 
     @property
-    def functions(self) -> Dict[str, FunctionNode]:
+    def functions(self) -> dict[str, FunctionNode]:
         return self._children[FunctionNode]
 
     @property
-    def enumerations(self) -> Dict[str, EnumerationNode]:
+    def enumerations(self) -> dict[str, EnumerationNode]:
         return self._children[EnumerationNode]
 
     @property
-    def constants(self) -> Dict[str, ConstantNode]:
+    def constants(self) -> dict[str, ConstantNode]:
         return self._children[ConstantNode]
 
     def add_namespace(self, name: str) -> "NamespaceNode":
@@ -53,7 +55,7 @@ class NamespaceNode(ASTNode):
                                properties=properties)
 
     def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
-                     return_type: Optional[FunctionNode.RetType] = None) -> FunctionNode:
+                     return_type: FunctionNode.RetType | None = None) -> FunctionNode:
         return self._add_child(FunctionNode, name, arguments=arguments,
                                return_type=return_type)
 

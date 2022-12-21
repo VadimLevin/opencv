@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, Generator
 import abc
 
 
@@ -11,6 +11,10 @@ class TypeNode(abc.ABC):
     @abc.abstractproperty
     def typename(self) -> str:
         pass
+
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield from ()
 
 
 class NoneTypeNode(TypeNode):
@@ -24,6 +28,10 @@ class AnyTypeNode(TypeNode):
     def typename(self) -> str:
         return "Any"
 
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield "from typing import Any"
+
 
 class PrimitiveTypeNode(TypeNode):
     def __init__(self, ctype_name: str, typename: str | None = None) -> None:
@@ -35,48 +43,42 @@ class PrimitiveTypeNode(TypeNode):
         return self._typename
 
     @classmethod
-    def float(cls, ctype_name: str | None = None):
-        if ctype_name is None:
-            ctype_name = "float"
-        return PrimitiveTypeNode(ctype_name, typename="float")
-
-    @classmethod
-    def bool(cls, ctype_name: str | None = None):
-        if ctype_name is None:
-            ctype_name = "bool"
-        return PrimitiveTypeNode(ctype_name, typename="bool")
-
-    @classmethod
-    def int(cls, ctype_name: str | None = None):
+    def int_(cls, ctype_name: str | None = None):
         if ctype_name is None:
             ctype_name = "int"
         return PrimitiveTypeNode(ctype_name, typename="int")
 
     @classmethod
-    def string(cls, ctype_name: str | None = None):
+    def float_(cls, ctype_name: str | None = None):
+        if ctype_name is None:
+            ctype_name = "float"
+        return PrimitiveTypeNode(ctype_name, typename="float")
+
+    @classmethod
+    def bool_(cls, ctype_name: str | None = None):
+        if ctype_name is None:
+            ctype_name = "bool"
+        return PrimitiveTypeNode(ctype_name, typename="bool")
+
+    @classmethod
+    def str_(cls, ctype_name: str | None = None):
         if ctype_name is None:
             ctype_name = "string"
         return PrimitiveTypeNode(ctype_name, "str")
 
 
-class AliasLinkTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, alias_name: str | None = None):
-        super().__init__(ctype_name)
-        self.alias_name = alias_name if alias_name is not None else ctype_name
+class AliasRefTypeNode(TypeNode):
+    def __init__(self, alias_ctype_name: str,
+                 alias_export_name: str | None = None):
+        super().__init__(alias_ctype_name)
+        if alias_export_name is None:
+            self.alias_export_name = alias_ctype_name
+        else:
+            self.alias_export_name = alias_export_name
 
     @property
     def typename(self) -> str:
-        return self.alias_name
-
-
-class DirectAliasTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, value: TypeNode) -> None:
-        super().__init__(ctype_name)
-        self.value = value
-
-    @property
-    def typename(self) -> str:
-        return self.value.typename
+        return self.alias_export_name
 
 
 class AliasTypeNode(TypeNode):
@@ -94,38 +96,47 @@ class AliasTypeNode(TypeNode):
             return self._export_name
         return self.ctype_name
 
-    @classmethod
-    def int(cls, ctype_name: str, export_name: str | None = None,
-            comment: str | None = None):
-        return cls(ctype_name, PrimitiveTypeNode.int(), export_name, comment)
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        return self.value.required_imports
 
     @classmethod
-    def float(cls, ctype_name: str, export_name: str | None = None,
-              comment: str | None = None):
-        return cls(ctype_name, PrimitiveTypeNode.float(), export_name, comment)
+    def int_(cls, ctype_name: str, export_name: str | None = None,
+             comment: str | None = None):
+        return cls(ctype_name, PrimitiveTypeNode.int_(), export_name, comment)
 
     @classmethod
-    def array(cls, ctype_name: str, shape: tuple[int] | None,
-              dtype: str | None = None, export_name: str | None = None,
-              comment: str | None = None):
-        return cls(ctype_name, NDArrayTypeNode(shape, dtype), export_name,
-                   comment)
+    def float_(cls, ctype_name: str, export_name: str | None = None,
+               comment: str | None = None):
+        return cls(ctype_name, PrimitiveTypeNode.float_(), export_name, comment)
 
     @classmethod
-    def union(cls, ctype_name: str, items: tuple[TypeNode],
-              export_name: str | None = None, comment: str | None = None):
+    def array_(cls, ctype_name: str, shape: tuple[int, ...] | None,
+               dtype: str | None = None, export_name: str | None = None,
+               comment: str | None = None):
+        return cls(ctype_name, NDArrayTypeNode(ctype_name, shape, dtype),
+                   export_name, comment)
+
+    @classmethod
+    def union_(cls, ctype_name: str, items: tuple[TypeNode, ...],
+               export_name: str | None = None, comment: str | None = None):
         return cls(ctype_name, UnionTypeNode(ctype_name, items),
                    export_name, comment)
 
     @classmethod
-    def sequence(cls, ctype_name: str, item: TypeNode,
-                 export_name: str | None = None, comment: str | None = None):
+    def optional_(cls, ctype_name: str, item: TypeNode,
+                  export_name: str | None = None, comment: str | None = None):
+        return cls(ctype_name, OptionalTypeNode(item), export_name, comment)
+
+    @classmethod
+    def sequence_(cls, ctype_name: str, item: TypeNode,
+                  export_name: str | None = None, comment: str | None = None):
         return cls(ctype_name, SequenceTypeNode(ctype_name, item),
                    export_name, comment)
 
     @classmethod
-    def tuple(cls, ctype_name: str, items: tuple[TypeNode],
-              export_name: str | None = None, comment: str | None = None):
+    def tuple_(cls, ctype_name: str, items: tuple[TypeNode, ...],
+               export_name: str | None = None, comment: str | None = None):
         return cls(ctype_name, TupleTypeNode(ctype_name, items),
                    export_name, comment)
 
@@ -136,16 +147,24 @@ class AliasTypeNode(TypeNode):
                    export_name, comment)
 
     @classmethod
-    def callable(cls, ctype_name: str, argument_type: TypeNode,
-                 return_type: TypeNode = NoneTypeNode("void"),
-                 export_name: str | None = None, comment: str | None = None):
+    def callable_(cls, ctype_name: str, argument_type: TypeNode,
+                  return_type: TypeNode = NoneTypeNode("void"),
+                  export_name: str | None = None, comment: str | None = None):
         return cls(ctype_name,
                    CallableTypeNode(ctype_name, argument_type, return_type),
                    export_name, comment)
 
+    @classmethod
+    def ref_(cls, ctype_name: str, alias_ctype_name: str,
+             alias_export_name: str | None = None,
+             export_name: str | None = None, comment: str | None = None):
+        return cls(ctype_name,
+                   AliasRefTypeNode(alias_ctype_name, alias_export_name),
+                   export_name, comment)
+
 
 class NDArrayTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, shape: tuple[int] | None = None,
+    def __init__(self, ctype_name: str, shape: tuple[int, ...] | None = None,
                  dtype: str | None = None) -> None:
         super().__init__(ctype_name)
         self.shape = shape
@@ -153,20 +172,37 @@ class NDArrayTypeNode(TypeNode):
 
     @property
     def typename(self) -> str:
-        return "numpy.ndarray[{shape}, numpy.dtype=[{dtype}]]".format(
-            shape=self.shape if self.shape is not None else "typing.Any",
+        return "numpy.ndarray[{shape}, numpy.dtype[{dtype}]]".format(
+            shape=self.shape if self.shape is not None else "Any",
             dtype=self.dtype if self.dtype is not None else "numpy.generic"
         )
 
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield "import numpy"
+
 
 class ClassTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, typename: str | None = None) -> None:
+    def __init__(self, ctype_name: str, typename: str | None = None,
+                 module_name: str | None = None) -> None:
         super().__init__(ctype_name)
         self._typename = typename if typename is not None else ctype_name
+        self._module_name = module_name
 
     @property
     def typename(self) -> str:
         return self._typename
+
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        if self._module_name is None:
+            yield from super().required_imports
+        else:
+            # assert self._module_name is not None, \
+            #     "Can't find a module for class '{}' exported as '{}'".format(
+            #         self.ctype_name, self.typename,
+            #     )
+            yield "from {} import {}".format(self._module_name, self.typename)
 
 
 class CollectionTypeNode(TypeNode):
@@ -176,16 +212,9 @@ class CollectionTypeNode(TypeNode):
 
     @property
     def typename(self) -> str:
-        types_separator = self.types_separator
-        try:
-            return self.type_format.format(types_separator.join(
-                item.typename for item in self.items
-            ))
-        except TypeError:
-            print(self.ctype_name, type(self))
-            for i, item in enumerate(self.items):
-                print(i, item.typename)
-            raise
+        return self.type_format.format(self.types_separator.join(
+            item.typename for item in self.items
+        ))
 
     @abc.abstractproperty
     def type_format(self) -> str:
@@ -194,6 +223,11 @@ class CollectionTypeNode(TypeNode):
     @abc.abstractproperty
     def types_separator(self) -> str:
         pass
+
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        for item in self.items:
+            yield from item.required_imports
 
 
 class SequenceTypeNode(CollectionTypeNode):
@@ -207,6 +241,11 @@ class SequenceTypeNode(CollectionTypeNode):
     @property
     def types_separator(self):
         return ", "
+
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield "from typing import Sequence"
+        yield from super().required_imports
 
 
 class TupleTypeNode(CollectionTypeNode):
@@ -246,6 +285,12 @@ class CallableTypeNode(TypeNode):
         return "Callable[[{}], {}]".format(self.argument_type.typename,
                                            self.return_type.typename)
 
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield "from typing import Callable"
+        yield from self.argument_type.required_imports
+        yield from self.return_type.required_imports
+
 
 class DictTypeNode(TypeNode):
     def __init__(self, ctype_name: str, key_type: TypeNode,
@@ -258,3 +303,8 @@ class DictTypeNode(TypeNode):
     def typename(self) -> str:
         return "dict[{}, {}]".format(self.key_type.typename,
                                      self.value_type.typename)
+
+    @property
+    def required_imports(self) -> Generator[str, None, None]:
+        yield from self.key_type.required_imports
+        yield from self.value_type.required_imports

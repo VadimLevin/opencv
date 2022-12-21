@@ -6,6 +6,7 @@ from .enumeration_node import EnumerationNode
 from .constant_node import ConstantNode
 from .type_node import (
     TypeNode, OptionalTypeNode, UnionTypeNode, NoneTypeNode, TupleTypeNode,
-    ClassTypeNode,
+    ClassTypeNode, AliasTypeNode, SequenceTypeNode, AnyTypeNode,
+    CollectionTypeNode, NDArrayTypeNode, AliasRefTypeNode,
 )
 

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from .aliases import ALIASES
 from .nodes.type_node import (
-    TypeNode, PrimitiveTypeNode, UnionTypeNode, SequenceTypeNode,
-    ClassTypeNode, TupleTypeNode
+    TypeNode, UnionTypeNode, SequenceTypeNode, ClassTypeNode, TupleTypeNode
 )
 
 
@@ -203,10 +202,6 @@ def convert_ctype_name_to_pytype(typename: str,
         original_ctype_name = typename
 
     typename = normalize_ctype_name(typename.strip())
-
-    # if typename is one of the built-in Python types
-    if typename in ("float", "int", "bool", "string"):
-        return getattr(PrimitiveTypeNode, typename)(original_ctype_name)
 
     # if typename is a known alias or direct substitution
     type_node = ALIASES.get(typename)

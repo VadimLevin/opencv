@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import abc
 import itertools
-from typing import Iterator, Optional, DefaultDict, Tuple, Type, TypeVar, Dict, Iterable
+from typing import Iterator, Type, TypeVar, Iterable
 from collections import defaultdict
 
 import weakref
@@ -8,12 +10,12 @@ import weakref
 
 ASTNodeSubtype = TypeVar("ASTNodeSubtype", bound="ASTNode")
 NodeType = Type["ASTNode"]
-NameToNode = Dict[str, ASTNodeSubtype]
+NameToNode = dict[str, ASTNodeSubtype]
 
 
 class ASTNode:
-    def __init__(self, name: str, parent: Optional["ASTNode"] = None,
-                 export_name: Optional[str] = None) -> None:
+    def __init__(self, name: str, parent: "ASTNode" | None = None,
+                 export_name: str | None = None) -> None:
         FORBIDDEN_SYMBOLS = ";,*&#/|\\@!()[]^% "
         for forbidden_symbol in FORBIDDEN_SYMBOLS:
             assert forbidden_symbol not in name, \
@@ -35,10 +37,10 @@ class ASTNode:
 
         self.__name = name
         self.export_name = name if export_name is None else export_name
-        self._parent: Optional["ASTNode"] = None
+        self._parent: "ASTNode" | None = None
         self.parent = parent
         self.is_exported = True
-        self._children: DefaultDict[NodeType, NameToNode] = defaultdict(dict)
+        self._children: defaultdict[NodeType, NameToNode] = defaultdict(dict)
 
     def __str__(self) -> str:
         return "{}('{}' exported as '{}')".format(
@@ -49,7 +51,7 @@ class ASTNode:
         return str(self)
 
     @abc.abstractproperty
-    def children_types(self) -> Tuple[Type["ASTNode"], ...]:
+    def children_types(self) -> tuple[Type["ASTNode"], ...]:
         pass
 
     @property
@@ -63,11 +65,11 @@ class ASTNode:
         return self.__name
 
     @property
-    def parent(self) -> Optional["ASTNode"]:
+    def parent(self) -> "ASTNode" | None:
         return self._parent
 
     @parent.setter
-    def parent(self, value: Optional["ASTNode"]) -> None:
+    def parent(self, value: "ASTNode" | None) -> None:
         assert value is None or isinstance(value, ASTNode), \
             "ASTNode.parent should be None or another ASTNode, " \
             "but got: {}".format(type(value))
@@ -127,7 +129,7 @@ class ASTNode:
         return child_type(name, parent=self, **kwargs)
 
     def _find_child(self, child_type: Type[ASTNodeSubtype],
-                    name: str) -> Optional[ASTNodeSubtype]:
+                    name: str) -> ASTNodeSubtype | None:
         if child_type not in self._children:
             return None
         return self._children[child_type].get(name, None)

@@ -1,4 +1,6 @@
-from typing import NamedTuple, Union, Tuple, Sequence, List
+from __future__ import annotations
+
+from typing import NamedTuple, Sequence
 
 from .nodes import NamespaceNode, ClassNode
 
@@ -8,8 +10,8 @@ class ScopeNotFoundError(Exception):
 
 
 class SymbolName(NamedTuple):
-    namespaces: Tuple[str, ...]
-    classes: Tuple[str, ...]
+    namespaces: tuple[str, ...]
+    classes: tuple[str, ...]
     name: str
 
     def __str__(self) -> str:
@@ -27,20 +29,20 @@ class SymbolName(NamedTuple):
               known_namespaces: Sequence[str]) -> "SymbolName":
         chunks = full_symbol_name.split('.')
         namespaces, name = chunks[:-1], chunks[-1]
-        classes: List[str] = []
+        classes: list[str] = []
         while len(namespaces) > 0 and '.'.join(namespaces) not in known_namespaces:
             classes.insert(0, namespaces.pop())
         return SymbolName(tuple(namespaces), tuple(classes), name)
 
 
 def find_scope(root: NamespaceNode, symbol_name: SymbolName,
-               create_missing_namespaces: bool = True) -> Union[NamespaceNode, ClassNode]:
+               create_missing_namespaces: bool = True) -> NamespaceNode | ClassNode:
     assert symbol_name.namespaces[0] == root.name, \
         "Trying to find scope for '{}' with root namespace different from: '{}'".format(
             symbol_name, root.name
     )
 
-    scope: Union[NamespaceNode, ClassNode] = root
+    scope: NamespaceNode | ClassNode = root
     for namespace in symbol_name.namespaces[1:]:
         if namespace not in scope.namespaces:  # type: ignore
             if not create_missing_namespaces:

@@ -1,51 +1,82 @@
 from __future__ import annotations
 
-__all__ = ("generate_typing_stubs", )
+__all__ = ("generate_typing_stubs", "generate_aliases_module", )
 
 from io import StringIO
 from pathlib import Path
 from typing import Generator, Type, Callable, NamedTuple
 
+from .aliases import ALIASES
+
 from .nodes import (ASTNode, NamespaceNode, ClassNode, FunctionNode,
                     EnumerationNode, ConstantNode)
+from .nodes.type_node import (TypeNode, AliasTypeNode, AliasRefTypeNode,
+                              CollectionTypeNode, DictTypeNode,
+                              CallableTypeNode)
 
 
-def generate_typing_stubs(root, output_root):
-    # type: (NamespaceNode, Path) -> None
+def generate_aliases_module(root: NamespaceNode, output_root: Path):
+    def register_alias_links_from_collection(type_node: TypeNode):
+        assert isinstance(type_node, CollectionTypeNode)
+        for value_item in filter(lambda i: isinstance(i, AliasRefTypeNode),
+                                 type_node.items):
+            register_alias(ALIASES[value_item.ctype_name])  # type: ignore
 
+    def register_alias(alias_node: AliasTypeNode):
+        typename = alias_node.typename
+        # Check if alias is already registered
+        if typename in aliases:
+            return
+        if isinstance(alias_node.value, CollectionTypeNode):
+            # Check if collection contains a link to another alias
+            register_alias_links_from_collection(alias_node.value)
+        elif isinstance(alias_node.value, DictTypeNode):
+            if isinstance(alias_node.value.key_type, CollectionTypeNode):
+                register_alias_links_from_collection(alias_node.value.key_type)
+            if isinstance(alias_node.value.value_type, CollectionTypeNode):
+                register_alias_links_from_collection(alias_node.value.value_type)
+        elif isinstance(alias_node.value, CallableTypeNode):
+            if isinstance(alias_node.value.argument_type, CollectionTypeNode):
+                register_alias_links_from_collection(alias_node.value.argument_type)
+            if isinstance(alias_node.value.return_type, CollectionTypeNode):
+                register_alias_links_from_collection(alias_node.value.return_type)
+
+        aliases[typename] = alias_node.value.typename
+        if alias_node.comment is not None:
+            aliases[typename] += "  # " + alias_node.comment
+        _add_required_imports(alias_node.value, required_imports)
+
+    output_path = Path(output_root) / root.export_name / "typing"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    required_imports: set[str] = set()
+    aliases: dict[str, str] = {}
+
+    # For each node that is alias
+    for node in filter(lambda a: isinstance(a, AliasTypeNode),
+                       ALIASES.values()):
+        register_alias(node)
+
+    output_stream = StringIO()
+    _write_required_imports(required_imports, output_stream)
+
+    for alias_name, alias_type in aliases.items():
+        output_stream.write(alias_name)
+        output_stream.write(" = ")
+        output_stream.write(alias_type)
+        output_stream.write("\n")
+
+    (output_path / "__init__.pyi").write_text(output_stream.getvalue())
+
+
+def generate_typing_stubs(root: NamespaceNode, output_root: Path):
     output_path = Path(output_root) / root.export_name
     output_path.mkdir(parents=True, exist_ok=True)
 
+    required_imports = _collect_required_imports(root)
+
     output_stream = StringIO()
-
-    imported_dependencies = set()  # type: set[str]
-    # Check if typing module is required due to @overload decorator usage
-    # Looking for module-level function with at least 1 overload
-    if _has_overload(root):
-        imported_dependencies.add("typing")
-        output_stream.write("import typing\n")
-    else:
-        # There is no module-level functions with overload, so traverse
-        # through module classes, including their inner-classes
-        for cls in _for_each_class(root):
-            if _has_overload(cls):
-                imported_dependencies.add("typing")
-                output_stream.write("import typing\n")
-                break
-
-    for dep in root.dependencies:
-        dep_parent = dep.parent
-        assert dep_parent is not None, \
-            "Logic Error! '{}' parent is None".format(dep.name)
-
-        # if dependency is not local add it to import list
-        if dep_parent != root and dep.full_export_name not in imported_dependencies:
-            imported_dependencies.add(dep.full_export_name)
-            output_stream.write("from {} import {}\n".format(
-                dep_parent.full_export_name, dep.export_name)
-            )
-    if len(imported_dependencies) > 0:
-        output_stream.write("\n\n")
+    _write_required_imports(required_imports, output_stream)
 
     _generate_section_stub(StubSection("# Constants", ConstantNode), root,
                            output_stream, 0)
@@ -105,9 +136,9 @@ def _generate_section_stub(section, node, output_stream, indent):
     output_stream.write(" " * indent)
     output_stream.write(section.name)
     output_stream.write("\n")
-    stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]  # type: StubGenerator
+    stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]
     for child in filter(lambda c: c.is_exported, children.values()):
-        stub_generator(child, output_stream, indent)
+        stub_generator(child, output_stream, indent)  # type: ignore
     output_stream.write("\n")
     return True
 
@@ -170,7 +201,8 @@ def _generate_class_stub(class_node, output_stream, indent=0):
             Defaults to 0.
     """
     if len(class_node.bases) > 0:
-        bases = "({})".format(', '.join(base.export_name for base in class_node.bases))
+        bases = "({})".format(
+            ', '.join(base.export_name for base in class_node.bases))
     else:
         bases = ""
 
@@ -317,7 +349,8 @@ def _generate_function_stub(function_node, output_stream, indent=0):
         output_stream.write(
             "{decorators}"
             "{indent}def {name}({args}) -> {ret_type}: ...\n".format(
-                decorators="\n".join(decorators) + "\n" if len(decorators) > 0 else "",
+                decorators="\n".join(decorators) +
+                "\n" if len(decorators) > 0 else "",
                 name=function_node.export_name,
                 args=", ".join(annotated_args),
                 ret_type=ret_type,
@@ -361,18 +394,89 @@ def _has_overload(node):
     return False
 
 
-def _for_each_class(node):
-    # type: (NamespaceNode | ClassNode) -> Generator[ClassNode, None, None]
+def _for_each_class(node: NamespaceNode | ClassNode) \
+        -> Generator[ClassNode, None, None]:
     for cls in node.classes.values():
         yield cls
         if len(cls.classes):
             yield from _for_each_class(cls)
 
 
+def _for_each_function(node: NamespaceNode | ClassNode) \
+        -> Generator[FunctionNode, None, None]:
+    for func in node.functions.values():
+        yield func
+    for cls in node.classes.values():
+        yield from _for_each_function(cls)
+
+
+def _for_each_function_overload(node: NamespaceNode | ClassNode) \
+        -> Generator[FunctionNode.Overload, None, None]:
+    for func in _for_each_function(node):
+        for overload in func.overloads:
+            yield overload
+
+
+def _collect_required_imports(root: NamespaceNode) -> set[str]:
+    required_imports: set[str] = set()
+    # Check if typing module is required due to @overload decorator usage
+    # Looking for module-level function with at least 1 overload
+    if _has_overload(root):
+        required_imports.add("import typing")
+    else:
+        # There is no module-level functions with overload, so traverse
+        # through module classes, including their inner-classes
+        for cls in _for_each_class(root):
+            if _has_overload(cls):
+                required_imports.add("import typing")
+                break
+
+    # Importing external argument dependencies
+    for overload in _for_each_function_overload(root):
+        for arg in filter(lambda a: a.type_node is not None, overload.arguments):
+            _add_required_imports(arg.type_node, required_imports)  # type: ignore
+        if overload.return_type is not None:
+            _add_required_imports(overload.return_type.type_node,
+                                  required_imports)
+
+    for dep in root.dependencies:
+        dep_parent = dep.parent
+        assert dep_parent is not None, \
+            "Logic Error! '{}' parent is None".format(dep.name)
+
+        # if dependency is not local add it to import list
+        if dep_parent != root:
+            required_import = "from {} import {}".format(
+                dep_parent.full_export_name, dep.export_name
+            )
+            if required_import not in required_imports:
+                required_imports.add(required_import)
+    return required_imports
+
+
+def _add_required_imports(type_node: TypeNode, required_imports: set[str]):
+    if isinstance(type_node, AliasTypeNode):
+        required_import = "from cv2.typing import " + type_node.typename
+        if required_import not in required_imports:
+            required_imports.add(required_import)
+    else:
+        for required_import in filter(lambda ri: ri not in required_imports,
+                                      type_node.required_imports):
+            required_imports.add(required_import)
+
+
+def _write_required_imports(required_imports: set[str], output_stream: StringIO):
+    for required_import in required_imports:
+        output_stream.write(required_import)
+        output_stream.write("\n")
+    if len(required_imports):
+        output_stream.write("\n\n")
+
+
 StubGenerator = Callable[[ASTNode, StringIO, int], None]
 
 
-NODE_TYPE_TO_STUB_GENERATOR = {  # type: dict[Type[ASTNode], StubGenerator]
+NODE_TYPE_TO_STUB_GENERATOR = {
     ClassNode: _generate_class_stub,
     ConstantNode: _generate_constant_stub,
     EnumerationNode: _generate_enumeration_stub,

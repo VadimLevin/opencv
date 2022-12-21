@@ -8,6 +8,10 @@ from .nodes import (
     TypeNode,
     OptionalTypeNode,
     TupleTypeNode,
+    AliasTypeNode,
+    SequenceTypeNode,
+    AnyTypeNode,
+    CollectionTypeNode,
 )
 
 from .type_conversion_utils import (
@@ -22,4 +26,4 @@ from .ast_utils import (
     find_scope
 )
 
-from .generation import generate_typing_stubs
+from .generation import (generate_typing_stubs, generate_aliases_module)

@@ -18,6 +18,7 @@ else:
 from typing_stubs_generation import (
     convert_ctype_name_to_pytype,
     generate_typing_stubs,
+    generate_aliases_module,
     ClassProperty,
     NamespaceNode,
     ClassNode,
@@ -1466,6 +1467,7 @@ class PythonWrapperGenerator(object):
                 scope = find_scope(self.cv_root, full_enum_name)
             enum_node.parent = scope
 
+        generate_aliases_module(self.cv_root, os.path.join(output_path, "stubs"))
         generate_typing_stubs(self.cv_root, os.path.join(output_path, "stubs"))
         # That's it. Now save all the files
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)

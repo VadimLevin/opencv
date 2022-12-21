@@ -1390,9 +1390,9 @@ class PythonWrapperGenerator(object):
                     properties.append(
                         ClassProperty(
                             name=export_property_name,
-                            typename=convert_ctype_name_to_pytype(
+                            type_node=convert_ctype_name_to_pytype(
                                 property.tp
-                            ).typename,
+                            ),
                             is_readonly=property.readonly
                         )
                     )

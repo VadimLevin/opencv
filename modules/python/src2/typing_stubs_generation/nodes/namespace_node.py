@@ -4,7 +4,7 @@ from typing import Type, Iterable, Sequence
 import itertools
 import weakref
 
-from .node import ASTNode
+from .node import ASTNode, ASTNodeType
 
 from .class_node import ClassNode, ClassProperty
 from .function_node import FunctionNode
@@ -13,6 +13,10 @@ from .constant_node import ConstantNode
 
 
 class NamespaceNode(ASTNode):
+    @property
+    def node_type(self) -> ASTNodeType:
+        return ASTNodeType.Namespace
+
     @property
     def children_types(self) -> tuple[Type[ASTNode], ...]:
         return (NamespaceNode, ClassNode, FunctionNode,
@@ -64,3 +68,12 @@ class NamespaceNode(ASTNode):
 
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
+
+    def resolve_type_nodes(self, root: ASTNode):
+        for child in itertools.chain(self.functions.values(),
+                                     self.classes.values(),
+                                     self.namespaces.values()):
+            try:
+                child.resolve_type_nodes(self)  # type: ignore
+            except ValueError:
+                child.resolve_type_nodes(root)  # type: ignore

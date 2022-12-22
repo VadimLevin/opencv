@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type
 
-from .node import ASTNode
+from .node import ASTNode, ASTNodeType
 
 from .constant_node import ConstantNode
 
@@ -17,6 +17,10 @@ class EnumerationNode(ASTNode):
     @property
     def children_types(self) -> tuple[Type[ASTNode], ...]:
         return (ConstantNode, )
+
+    @property
+    def node_type(self) -> ASTNodeType:
+        return ASTNodeType.Enumeration
 
     @property
     def constants(self) -> dict[str, ConstantNode]:

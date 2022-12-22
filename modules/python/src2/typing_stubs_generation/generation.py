@@ -30,10 +30,11 @@ def generate_aliases_module(root: NamespaceNode, output_root: Path):
             # Check if collection contains a link to another alias
             register_alias_links_from_collection(alias_node.value)
 
-        aliases[typename] = alias_node.value.typename
+        aliases[typename] = alias_node.value.full_typename
         if alias_node.comment is not None:
             aliases[typename] += "  # " + alias_node.comment
-        _add_required_imports(alias_node.value, required_imports)
+        for required_import in alias_node.required_definition_imports:
+            required_imports.add(required_import)
 
     output_path = Path(output_root) / root.export_name / "typing"
     output_path.mkdir(parents=True, exist_ok=True)
@@ -41,10 +42,11 @@ def generate_aliases_module(root: NamespaceNode, output_root: Path):
     required_imports: set[str] = set()
     aliases: dict[str, str] = {}
 
-    # For each node that is alias
-    for node in filter(lambda a: isinstance(a, AliasTypeNode),
-                       ALIASES.values()):
-        register_alias(node)
+    # Resolve each node and register aliases
+    for node in ALIASES.values():
+        node.resolve(root)
+        if isinstance(node, AliasTypeNode):
+            register_alias(node)
 
     output_stream = StringIO()
     _write_required_imports(required_imports, output_stream)
@@ -204,6 +206,12 @@ def _generate_class_stub(class_node, output_stream, indent=0):
     )
     has_content = len(class_node.properties) > 0
 
+    class_module = class_node.parent
+    while not isinstance(class_module, NamespaceNode):
+        class_module = class_module.parent  # type: ignore
+
+    class_module_name = class_module.full_export_name
+
     # Processing class properties
     for property in class_node.properties:
         if property.is_readonly:
@@ -214,7 +222,7 @@ def _generate_class_stub(class_node, output_stream, indent=0):
         output_stream.write(
             template.format(indent=" " * (indent + 4),
                             name=property.name,
-                            type=property.typename)
+                            type=property.relative_typename(class_module_name))
         )
     if len(class_node.properties) > 0:
         output_stream.write("\n")
@@ -326,13 +334,30 @@ def _generate_function_stub(function_node: FunctionNode,
         decorators.append(" " * indent + "@staticmethod")
     if len(function_node.overloads) > 1:
         decorators.append(" " * indent + "@typing.overload")
+    function_module = function_node.parent
+    while not isinstance(function_module, NamespaceNode):
+        function_module = function_module.parent  # type: ignore
+    function_module_name = function_module.full_export_name
+
     for overload in function_node.overloads:
         # Annotate every function argument
-        annotated_args = (arg.annotated_form for arg in overload.arguments)
-        # And convert return type to the actual type
-        ret_type = getattr(overload.return_type, "typename", "None")
+        annotated_args = []
+        for arg in overload.arguments:
+            annotated_arg = arg.name
+            typename = arg.relative_typename(function_module_name)
+            if typename is not None:
+                annotated_arg += ": " + typename
+            if arg.default_value is not None:
+                annotated_arg += " = ..."
+            annotated_args.append(annotated_arg)
 
-        if function_node.parent.name == ret_type: # type: ignore
+        # And convert return type to the actual type
+        if overload.return_type is not None:
+            ret_type = overload.return_type.relative_typename(function_module_name)
+        else:
+            ret_type = "None"
+
+        if function_node.parent.name == ret_type:  # type: ignore
             ret_type = '"{}"'.format(ret_type)
 
         output_stream.write(
@@ -418,17 +443,17 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
             required_imports.add("import typing")
         # Add required imports for class properties
         for prop in cls.properties:
-            _add_required_imports(prop.type_node, required_imports)
+            _add_required_usage_imports(prop.type_node, required_imports)
 
     if has_overload:
         required_imports.add("import typing")
     # Importing external argument dependencies
     for overload in _for_each_function_overload(root):
         for arg in filter(lambda a: a.type_node is not None, overload.arguments):
-            _add_required_imports(arg.type_node, required_imports)  # type: ignore
+            _add_required_usage_imports(arg.type_node, required_imports)  # type: ignore
         if overload.return_type is not None:
-            _add_required_imports(overload.return_type.type_node,
-                                  required_imports)
+            _add_required_usage_imports(overload.return_type.type_node,
+                                        required_imports)
 
     for dep in root.dependencies:
         dep_parent = dep.parent
@@ -444,17 +469,13 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
     return required_imports
 
 
-def _add_required_imports(type_node: TypeNode, required_imports: set[str]):
-    if isinstance(type_node, AliasTypeNode):
-        required_import = "from cv2.typing import " + type_node.typename
+def _add_required_usage_imports(type_node: TypeNode, required_imports: set[str]):
+    for required_import in type_node.required_usage_imports:
         required_imports.add(required_import)
-    else:
-        for required_import in type_node.required_imports:
-            required_imports.add(required_import)
 
 
 def _write_required_imports(required_imports: set[str], output_stream: StringIO):
-    for required_import in required_imports:
+    for required_import in sorted(required_imports):
         output_stream.write(required_import)
         output_stream.write("\n")
     if len(required_imports):

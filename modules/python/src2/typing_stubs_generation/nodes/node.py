@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import enum
 import itertools
 from typing import Iterator, Type, TypeVar, Iterable
 from collections import defaultdict
@@ -11,6 +12,14 @@ import weakref
 ASTNodeSubtype = TypeVar("ASTNodeSubtype", bound="ASTNode")
 NodeType = Type["ASTNode"]
 NameToNode = dict[str, ASTNodeSubtype]
+
+
+class ASTNodeType(enum.Enum):
+    Namespace = enum.auto()
+    Class = enum.auto()
+    Function = enum.auto()
+    Enumeration = enum.auto()
+    Constant = enum.auto()
 
 
 class ASTNode:
@@ -52,6 +61,10 @@ class ASTNode:
 
     @abc.abstractproperty
     def children_types(self) -> tuple[Type["ASTNode"], ...]:
+        pass
+
+    @abc.abstractproperty
+    def node_type(self) -> ASTNodeType:
         pass
 
     @property

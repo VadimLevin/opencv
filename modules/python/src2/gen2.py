@@ -1055,7 +1055,8 @@ class PythonWrapperGenerator(object):
         self.consts = {}
         self.enums = {}
         self.cv_root = NamespaceNode("cv", export_name="cv2")
-        self.exported_enums: Dict[SymbolName, EnumerationNode] = {}
+        self.exported_enums = {}
+        self.type_hints_ignored_functions = set()
         self.code_include = StringIO()
         self.code_enums = StringIO()
         self.code_types = StringIO()
@@ -1200,10 +1201,12 @@ class PythonWrapperGenerator(object):
                 w_classes.append(w_classname)
             g_wname = "_".join(w_classes+[name])
             func_map = self.namespaces.setdefault(namespace_str, Namespace()).funcs
+            self.type_hints_ignored_functions.add(g_name)
             # Exports static function with internal name (backward compatibility)
             func = func_map.setdefault(g_name, FuncInfo("", g_name, cname, isconstructor, namespace_str, False))
             func.add_variant(decl, isphantom)
             if g_wname != g_name:  # TODO OpenCV 5.0
+                self.type_hints_ignored_functions.add(g_wname)
                 wfunc = func_map.setdefault(g_wname, FuncInfo("", g_wname, cname, isconstructor, namespace_str, False))
                 wfunc.add_variant(decl, isphantom)
         else:
@@ -1425,7 +1428,7 @@ class PythonWrapperGenerator(object):
                     continue
                 code = func.gen_code(self)
                 self.code_funcs.write(code)
-                if func.is_static:
+                if name in self.type_hints_ignored_functions:
                     continue
                 create_function_node(self.cv_root, func)
 
@@ -1467,6 +1470,7 @@ class PythonWrapperGenerator(object):
                 scope = find_scope(self.cv_root, full_enum_name)
             enum_node.parent = scope
 
+        self.cv_root.resolve_type_nodes(self.cv_root)
         generate_aliases_module(self.cv_root, os.path.join(output_path, "stubs"))
         generate_typing_stubs(self.cv_root, os.path.join(output_path, "stubs"))
         # That's it. Now save all the files

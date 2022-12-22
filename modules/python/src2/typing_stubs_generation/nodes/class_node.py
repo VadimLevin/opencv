@@ -5,7 +5,7 @@ import itertools
 
 import weakref
 
-from .node import ASTNode
+from .node import ASTNode, ASTNodeType
 
 from .function_node import FunctionNode
 from .enumeration_node import EnumerationNode
@@ -21,7 +21,18 @@ class ClassProperty(NamedTuple):
 
     @property
     def typename(self) -> str:
-        return self.type_node.typename
+        return self.type_node.full_typename
+
+    def resolve_type_nodes(self, root: ASTNode):
+        try:
+            self.type_node.resolve(root)
+        except Exception as e:
+            raise ValueError(
+                "Failed to resolve '{}' property".format(self.name)
+            ) from e
+
+    def relative_typename(self, root: str) -> str | None:
+        return self.type_node.relative_typename(root)
 
 
 class ClassNode(ASTNode):
@@ -43,6 +54,10 @@ class ClassNode(ASTNode):
     @property
     def children_types(self) -> tuple[Type[ASTNode], ...]:
         return (ClassNode, FunctionNode, EnumerationNode, ConstantNode)
+
+    @property
+    def node_type(self) -> ASTNodeType:
+        return ASTNodeType.Class
 
     @property
     def dependencies(self) -> Iterable[ASTNode]:
@@ -102,3 +117,25 @@ class ClassNode(ASTNode):
 
     def add_derived_class(self, derived_class_node: "ClassNode"):
         self.__derived.append(weakref.proxy(derived_class_node))
+
+    def resolve_type_nodes(self, root: ASTNode):
+        errors = []
+        for child in itertools.chain(self.functions.values(),
+                                     self.classes.values(),
+                                     self.properties):
+            try:
+                try:
+                    # Give priority to narrowest scope (class-level scope in this case)
+                    child.resolve_type_nodes(self)  # type: ignore
+                except ValueError:
+                    child.resolve_type_nodes(root)  # type: ignore
+            except ValueError as e:
+                errors.append(str(e))
+        if len(errors) > 0:
+            raise ValueError(
+                "Failed to resolve '{}' class type nodes. Errors: {}".format(
+                    self.full_export_name, errors
+                )
+            )
+
+

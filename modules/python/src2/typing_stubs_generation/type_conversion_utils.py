@@ -209,12 +209,18 @@ def convert_ctype_name_to_pytype(typename: str,
         type_node.ctype_name = original_ctype_name
         return type_node
 
+    # If typename is a known exported alias name (e.g. IndexParams or SearchParams)
+    for alias in ALIASES.values():
+        if alias.typename == typename:
+            return alias
+
     # explicit handling of special G-Api Types
-        # GAPI types
     if typename.startswith("GArray_") or typename.startswith("GArray<"):
         return ClassTypeNode("GArrayT")
     if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
         return ClassTypeNode("GOpaqueT")
+    if typename == "GStreamerPipeline" or typename.startswith("GStreamerSource"):
+        return ClassTypeNode("gst_" + typename)
     if typename.startswith("util_variant"):
         variant_types = get_template_instantiation_type(typename)
         return UnionTypeNode(

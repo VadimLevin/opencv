@@ -1,6 +1,6 @@
 from typing import Type
 
-from .node import ASTNode
+from .node import ASTNode, ASTNodeType
 
 
 class ConstantNode(ASTNode):
@@ -13,6 +13,10 @@ class ConstantNode(ASTNode):
     @property
     def children_types(self) -> tuple[Type[ASTNode], ...]:
         return ()
+
+    @property
+    def node_type(self) -> ASTNodeType:
+        return ASTNodeType.Constant
 
     def __str__(self) -> str:
         return "Constant('{}' exported as '{}': {})".format(

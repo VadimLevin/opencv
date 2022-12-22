@@ -245,12 +245,30 @@ class ClassTypeNode(TypeNode):
 
     @property
     def typename(self) -> str:
-        return self._typename if self._ast_node is None else self._ast_node.export_name
+        if self._ast_node is None:
+            return self._typename
+        typename = self._ast_node.export_name
+        if self._ast_node.node_type is not ASTNodeType.Enumeration:
+            return typename
+        # NOTE: Special handling for enums
+        parent = self._ast_node.parent
+        while parent.node_type is ASTNodeType.Class:
+            typename = parent.export_name + "_" + typename
+            parent = parent.parent
+        return typename
 
     @property
     def full_typename(self) -> str:
         if self._ast_node is not None:
-            return self._ast_node.full_export_name
+            if self._ast_node.node_type is not ASTNodeType.Enumeration:
+                return self._ast_node.full_export_name
+            # NOTE: enumerations are exported to module scope
+            typename = self._ast_node.export_name
+            parent = self._ast_node.parent
+            while parent.node_type is ASTNodeType.Class:
+                typename = parent.export_name + "_" + typename
+                parent = parent.parent
+            return parent.full_export_name + "." + typename
         if self._module_name is not None:
             return self._module_name + "." + self._typename
         return self._typename

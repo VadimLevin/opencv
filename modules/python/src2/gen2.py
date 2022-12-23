@@ -10,7 +10,6 @@ from itertools import chain
 
 if sys.version_info[0] >= 3:
     from io import StringIO
-    from typing import Dict
 else:
     from cStringIO import StringIO
 
@@ -990,12 +989,23 @@ def create_function_node_in_scope(scope, function):
 
         # Function has more than 1 output argument, so its return type is a tuple
         if len(variant.py_outlist) > 1:
+            ret_types = []
+            # Actual returned value of the function goes first
+            if variant.py_outlist[0][1] == -1:
+                ret_types.append(create_type_node(variant.rettype))
+                outlist = variant.py_outlist[1:]
+            else:
+                outlist = variant.py_outlist
+            for _, argno in outlist:
+                assert argno >= 0, \
+                    "Logic Error! Outlist contains function return type: {}".format(
+                        outlist
+                    )
+
+                ret_types.append(create_type_node(variant.args[argno].tp))
+
             return arguments, FunctionNode.RetType(
-                TupleTypeNode(
-                    "return_type",
-                    tuple(create_type_node(variant.args[argno].tp)
-                          for _, argno in variant.py_outlist)
-                )
+                TupleTypeNode("return_type", ret_types)
             )
         # Function with 1 output argument in Python
         if len(variant.py_outlist) == 1:

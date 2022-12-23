@@ -1,63 +1,23 @@
 from __future__ import annotations
 
-__all__ = ("generate_typing_stubs", "generate_aliases_module", )
+__all__ = ("generate_typing_stubs", "generate_typing_module", )
 
 from io import StringIO
 from pathlib import Path
 from typing import Generator, Type, Callable, NamedTuple
 
-from .aliases import ALIASES
+from .predefined_types import PREDEFINED_TYPES
 
 from .nodes import (ASTNode, NamespaceNode, ClassNode, FunctionNode,
                     EnumerationNode, ConstantNode)
 from .nodes.type_node import (TypeNode, AliasTypeNode, AliasRefTypeNode,
-                              CollectionTypeNode)
+                              AggregatedTypeNode)
 
 
-def generate_aliases_module(root: NamespaceNode, output_root: Path):
-    def register_alias_links_from_collection(type_node: TypeNode):
-        assert isinstance(type_node, CollectionTypeNode)
-        for value_item in filter(lambda i: isinstance(i, AliasRefTypeNode),
-                                 type_node.items):
-            register_alias(ALIASES[value_item.ctype_name])  # type: ignore
-
-    def register_alias(alias_node: AliasTypeNode):
-        typename = alias_node.typename
-        # Check if alias is already registered
-        if typename in aliases:
-            return
-        if isinstance(alias_node.value, CollectionTypeNode):
-            # Check if collection contains a link to another alias
-            register_alias_links_from_collection(alias_node.value)
-
-        aliases[typename] = alias_node.value.full_typename
-        if alias_node.comment is not None:
-            aliases[typename] += "  # " + alias_node.comment
-        for required_import in alias_node.required_definition_imports:
-            required_imports.add(required_import)
-
-    output_path = Path(output_root) / root.export_name / "typing"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    required_imports: set[str] = set()
-    aliases: dict[str, str] = {}
-
-    # Resolve each node and register aliases
-    for node in ALIASES.values():
-        node.resolve(root)
-        if isinstance(node, AliasTypeNode):
-            register_alias(node)
-
-    output_stream = StringIO()
-    _write_required_imports(required_imports, output_stream)
-
-    for alias_name, alias_type in aliases.items():
-        output_stream.write(alias_name)
-        output_stream.write(" = ")
-        output_stream.write(alias_type)
-        output_stream.write("\n")
-
-    (output_path / "__init__.pyi").write_text(output_stream.getvalue())
+def generate_typing_module(root: NamespaceNode, output_path: Path):
+    root.resolve_type_nodes()
+    _generate_typing_module(root, output_path)
+    generate_typing_stubs(root, output_path)
 
 
 def generate_typing_stubs(root: NamespaceNode, output_root: Path):
@@ -128,7 +88,10 @@ def _generate_section_stub(section, node, output_stream, indent):
     output_stream.write(section.name)
     output_stream.write("\n")
     stub_generator = NODE_TYPE_TO_STUB_GENERATOR[section.node_type]
-    for child in filter(lambda c: c.is_exported, children.values()):
+    children = filter(lambda c: c.is_exported, children.values())  # type: ignore
+    if hasattr(section.node_type, "weight"):
+        children = sorted(children, key=lambda child: getattr(child, "weight"))  # type: ignore
+    for child in children:
         stub_generator(child, output_stream, indent)  # type: ignore
     output_stream.write("\n")
     return True
@@ -233,7 +196,7 @@ def _generate_class_stub(class_node, output_stream, indent=0):
             has_content = True
     if not has_content:
         output_stream.write(" " * (indent + 4))
-        output_stream.write("...\n\n\n")
+        output_stream.write("...\n\n")
 
 
 def _generate_constant_stub(constant_node: ConstantNode,
@@ -357,9 +320,6 @@ def _generate_function_stub(function_node: FunctionNode,
         else:
             ret_type = "None"
 
-        if function_node.parent.name == ret_type:  # type: ignore
-            ret_type = '"{}"'.format(ret_type)
-
         output_stream.write(
             "{decorators}"
             "{indent}def {name}({args}) -> {ret_type}: ...\n".format(
@@ -466,6 +426,11 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
                 dep_parent.full_export_name, dep.export_name
             )
             required_imports.add(required_import)
+
+    root_import = "import " + root.full_export_name
+    if root_import in required_imports:
+        required_imports.remove(root_import)
+
     return required_imports
 
 
@@ -480,6 +445,58 @@ def _write_required_imports(required_imports: set[str], output_stream: StringIO)
         output_stream.write("\n")
     if len(required_imports):
         output_stream.write("\n\n")
+
+
+def _generate_typing_module(root: NamespaceNode, output_path: Path):
+    def register_alias_links_from_aggregated_type(type_node: TypeNode):
+        assert isinstance(type_node, AggregatedTypeNode), \
+            "Provided type node '{}' is not an aggregated type".format(
+                type_node.ctype_name
+            )
+
+        for item in filter(lambda i: isinstance(i, AliasRefTypeNode), type_node):
+            register_alias(PREDEFINED_TYPES[item.ctype_name])  # type: ignore
+
+    def register_alias(alias_node: AliasTypeNode):
+        typename = alias_node.typename
+        # Check if alias is already registered
+        if typename in aliases:
+            return
+        if isinstance(alias_node.value, AggregatedTypeNode):
+            # Check if collection contains a link to another alias
+            register_alias_links_from_aggregated_type(alias_node.value)
+
+        # Strip module prefix from aliased types
+        aliases[typename] = alias_node.value.full_typename.replace(
+            root.export_name + ".typing", ""
+        )
+        if alias_node.comment is not None:
+            aliases[typename] += "  # " + alias_node.comment
+        for required_import in alias_node.required_definition_imports:
+            required_imports.add(required_import)
+
+    output_path = Path(output_path) / root.export_name / "typing"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    required_imports: set[str] = set()
+    aliases: dict[str, str] = {}
+
+    # Resolve each node and register aliases
+    for node in PREDEFINED_TYPES.values():
+        node.resolve(root)
+        if isinstance(node, AliasTypeNode):
+            register_alias(node)
+
+    output_stream = StringIO()
+    _write_required_imports(required_imports, output_stream)
+
+    for alias_name, alias_type in aliases.items():
+        output_stream.write(alias_name)
+        output_stream.write(" = ")
+        output_stream.write(alias_type)
+        output_stream.write("\n")
+
+    (output_path / "__init__.pyi").write_text(output_stream.getvalue())
 
 
 StubGenerator = Callable[[ASTNode, StringIO, int], None]

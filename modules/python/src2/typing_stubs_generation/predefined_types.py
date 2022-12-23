@@ -1,11 +1,11 @@
 from .nodes.type_node import (
     AliasTypeNode, AliasRefTypeNode, PrimitiveTypeNode,
-    ClassTypeNode, NDArrayTypeNode, NoneTypeNode, SequenceTypeNode,
+    ASTNodeTypeNode, NDArrayTypeNode, NoneTypeNode, SequenceTypeNode,
     TupleTypeNode, UnionTypeNode, AnyTypeNode
 )
 
 
-_ALIASES = (
+_PREDEFINED_TYPES = (
     PrimitiveTypeNode.int_("int"),
     PrimitiveTypeNode.int_("uchar"),
     PrimitiveTypeNode.int_("unsigned"),
@@ -22,7 +22,7 @@ _ALIASES = (
     AliasTypeNode.int_("void*", "IntPointer", "Represents an arbitrary pointer"),
     AliasTypeNode.union_(
         "Mat",
-        items=(ClassTypeNode("Mat", module_name="cv2.mat_wrapper"),
+        items=(ASTNodeTypeNode("Mat", module_name="cv2.mat_wrapper"),
                NDArrayTypeNode("Mat")),
         export_name="MatLike"
     ),
@@ -63,7 +63,7 @@ _ALIASES = (
                          comment="Any type providing sequence protocol is supported"),
     AliasTypeNode.tuple_("TermCriteria",
                          items=(
-                             ClassTypeNode("TermCriteria.Type"),
+                             ASTNodeTypeNode("TermCriteria.Type"),
                              PrimitiveTypeNode.int_(),
                              PrimitiveTypeNode.float_()),
                          comment="Any type providing sequence protocol is supported"),
@@ -95,9 +95,9 @@ _ALIASES = (
                          export_name="FeatureExtractor"),
     AliasTypeNode.union_("GProtoArg",
                          items=(AliasRefTypeNode("Scalar"),
-                                ClassTypeNode("GMat"),
-                                ClassTypeNode("GOpaqueT"),
-                                ClassTypeNode("GArrayT"))),
+                                ASTNodeTypeNode("GMat"),
+                                ASTNodeTypeNode("GOpaqueT"),
+                                ASTNodeTypeNode("GArrayT"))),
     SequenceTypeNode("GProtoArgs", AliasRefTypeNode("GProtoArg")),
     AliasTypeNode.sequence_("GProtoInputArgs", AliasRefTypeNode("GProtoArg")),
     AliasTypeNode.sequence_("GProtoOutputArgs", AliasRefTypeNode("GProtoArg")),
@@ -105,25 +105,25 @@ _ALIASES = (
         "GRunArg",
         items=(AliasRefTypeNode("Mat", "MatLike"),
                AliasRefTypeNode("Scalar"),
-               ClassTypeNode("GOpaqueT"),
-               ClassTypeNode("GArrayT"),
+               ASTNodeTypeNode("GOpaqueT"),
+               ASTNodeTypeNode("GArrayT"),
                SequenceTypeNode("GRunArg", AnyTypeNode("GRunArg")),
                NoneTypeNode("GRunArg"))
     ),
     AliasTypeNode.optional_("GOptRunArg", AliasRefTypeNode("GRunArg")),
     AliasTypeNode.union_("GMetaArg",
-                         items=(ClassTypeNode("GMat"),
+                         items=(ASTNodeTypeNode("GMat"),
                                 AliasRefTypeNode("Scalar"),
-                                ClassTypeNode("GOpaqueT"),
-                                ClassTypeNode("GArrayT"))),
+                                ASTNodeTypeNode("GOpaqueT"),
+                                ASTNodeTypeNode("GArrayT"))),
     AliasTypeNode.union_("Prim",
-                         items=(ClassTypeNode("gapi.wip.draw.Text"),
-                                ClassTypeNode("gapi.wip.draw.Circle"),
-                                ClassTypeNode("gapi.wip.draw.Image"),
-                                ClassTypeNode("gapi.wip.draw.Line"),
-                                ClassTypeNode("gapi.wip.draw.Rect"),
-                                ClassTypeNode("gapi.wip.draw.Mosaic"),
-                                ClassTypeNode("gapi.wip.draw.Poly"))),
+                         items=(ASTNodeTypeNode("gapi.wip.draw.Text"),
+                                ASTNodeTypeNode("gapi.wip.draw.Circle"),
+                                ASTNodeTypeNode("gapi.wip.draw.Image"),
+                                ASTNodeTypeNode("gapi.wip.draw.Line"),
+                                ASTNodeTypeNode("gapi.wip.draw.Rect"),
+                                ASTNodeTypeNode("gapi.wip.draw.Mosaic"),
+                                ASTNodeTypeNode("gapi.wip.draw.Poly"))),
     SequenceTypeNode("Prims", AliasRefTypeNode("Prim")),
     AliasTypeNode.array_("Matx33f", (3, 3), "numpy.float32"),
     AliasTypeNode.array_("Matx33d", (3, 3), "numpy.float64"),
@@ -131,16 +131,16 @@ _ALIASES = (
     AliasTypeNode.array_("Matx44d", (4, 4), "numpy.float64"),
     NDArrayTypeNode("vector<uchar>", dtype="numpy.uint8"),
     NDArrayTypeNode("vector_uchar", dtype="numpy.uint8"),
-    TupleTypeNode("GMat2", items=(ClassTypeNode("GMat"),
-                                  ClassTypeNode("GMat"))),
-    ClassTypeNode("GOpaque", "GOpaqueT"),
-    ClassTypeNode("GArray", "GArrayT"),
+    TupleTypeNode("GMat2", items=(ASTNodeTypeNode("GMat"),
+                                  ASTNodeTypeNode("GMat"))),
+    ASTNodeTypeNode("GOpaque", "GOpaqueT"),
+    ASTNodeTypeNode("GArray", "GArrayT"),
     AliasTypeNode.union_("GTypeInfo",
-                         items=(ClassTypeNode("GMat"),
+                         items=(ASTNodeTypeNode("GMat"),
                                 AliasRefTypeNode("Scalar"),
-                                ClassTypeNode("GOpaqueT"),
-                                ClassTypeNode("GArrayT"))),
-    SequenceTypeNode("GCompileArgs", ClassTypeNode("GCompileArg")),
+                                ASTNodeTypeNode("GOpaqueT"),
+                                ASTNodeTypeNode("GArrayT"))),
+    SequenceTypeNode("GCompileArgs", ASTNodeTypeNode("GCompileArg")),
     SequenceTypeNode("GTypesInfo", AliasRefTypeNode("GTypeInfo")),
     SequenceTypeNode("GRunArgs", AliasRefTypeNode("GRunArg")),
     SequenceTypeNode("GMetaArgs", AliasRefTypeNode("GMetaArg")),
@@ -180,4 +180,4 @@ _ALIASES = (
                         ), export_name="SearchParams"),
 )
 
-ALIASES = dict(zip((alias.ctype_name for alias in _ALIASES), _ALIASES))
+PREDEFINED_TYPES = dict(zip((t.ctype_name for t in _PREDEFINED_TYPES), _PREDEFINED_TYPES))

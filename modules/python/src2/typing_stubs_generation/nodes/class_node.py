@@ -11,7 +11,7 @@ from .function_node import FunctionNode
 from .enumeration_node import EnumerationNode
 from .constant_node import ConstantNode
 
-from .type_node import TypeNode
+from .type_node import TypeNode, TypeResolutionError
 
 
 class ClassProperty(NamedTuple):
@@ -27,7 +27,7 @@ class ClassProperty(NamedTuple):
         try:
             self.type_node.resolve(root)
         except Exception as e:
-            raise ValueError(
+            raise TypeResolutionError(
                 "Failed to resolve '{}' property".format(self.name)
             ) from e
 
@@ -43,13 +43,10 @@ class ClassNode(ASTNode):
         super().__init__(name, parent, export_name)
         self.bases = list(bases)
         self.properties = properties
-        self.__derived: list["weakref.ProxyType[ClassNode]"] = []
-        for base in self.bases:
-            base.add_derived_class(self)
 
     @property
     def weight(self) -> int:
-        return -1 - sum(derived.weight for derived in self.__derived)
+        return 1 + sum(base.weight for base in self.bases)
 
     @property
     def children_types(self) -> tuple[Type[ASTNode], ...]:
@@ -113,10 +110,6 @@ class ClassNode(ASTNode):
 
     def add_base(self, base_class_node: "ClassNode"):
         self.bases.append(weakref.proxy(base_class_node))
-        base_class_node.add_derived_class(self)
-
-    def add_derived_class(self, derived_class_node: "ClassNode"):
-        self.__derived.append(weakref.proxy(derived_class_node))
 
     def resolve_type_nodes(self, root: ASTNode):
         errors = []
@@ -127,15 +120,13 @@ class ClassNode(ASTNode):
                 try:
                     # Give priority to narrowest scope (class-level scope in this case)
                     child.resolve_type_nodes(self)  # type: ignore
-                except ValueError:
+                except TypeResolutionError:
                     child.resolve_type_nodes(root)  # type: ignore
-            except ValueError as e:
+            except TypeResolutionError as e:
                 errors.append(str(e))
         if len(errors) > 0:
-            raise ValueError(
-                "Failed to resolve '{}' class type nodes. Errors: {}".format(
-                    self.full_export_name, errors
+            raise TypeResolutionError(
+                'Failed to resolve "{}" class against "{}". Errors: {}'.format(
+                    self.full_export_name, root.full_export_name, errors
                 )
             )
-
-

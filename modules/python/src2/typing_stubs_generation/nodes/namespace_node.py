@@ -11,6 +11,8 @@ from .function_node import FunctionNode
 from .enumeration_node import EnumerationNode
 from .constant_node import ConstantNode
 
+from .type_node import TypeResolutionError
+
 
 class NamespaceNode(ASTNode):
     @property
@@ -69,11 +71,14 @@ class NamespaceNode(ASTNode):
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
 
-    def resolve_type_nodes(self, root: ASTNode):
+    def resolve_type_nodes(self, root: ASTNode | None = None):
         for child in itertools.chain(self.functions.values(),
                                      self.classes.values(),
                                      self.namespaces.values()):
             try:
                 child.resolve_type_nodes(self)  # type: ignore
-            except ValueError:
-                child.resolve_type_nodes(root)  # type: ignore
+            except TypeResolutionError:
+                if root is not None:
+                    child.resolve_type_nodes(root)  # type: ignore
+                else:
+                    raise

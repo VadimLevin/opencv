@@ -7,6 +7,10 @@ import abc
 from .node import ASTNode, ASTNodeType
 
 
+class TypeResolutionError(Exception):
+    pass
+
+
 class TypeNode(abc.ABC):
     def __init__(self, ctype_name: str) -> None:
         self.ctype_name = ctype_name
@@ -26,6 +30,10 @@ class TypeNode(abc.ABC):
     @property
     def required_usage_imports(self) -> Generator[str, None, None]:
         yield from ()
+
+    @property
+    def is_resolved(self) -> bool:
+        return True
 
     def relative_typename(self, root: str) -> str:
         return self.full_typename
@@ -129,12 +137,16 @@ class AliasTypeNode(TypeNode):
     def required_usage_imports(self) -> Generator[str, None, None]:
         yield "import cv2.typing"
 
+    @property
+    def is_resolved(self) -> bool:
+        return self.value.is_resolved
+
     def resolve(self, root: ASTNode):
         try:
             self.value.resolve(root)
-        except Exception as e:
-            raise ValueError(
-                "Failed to resolve alias '{}' type exported as '{}'".format(
+        except TypeResolutionError as e:
+            raise TypeResolutionError(
+                'Failed to resolve alias "{}" exposed as "{}"'.format(
                     self.ctype_name, self.typename
                 )
             ) from e
@@ -186,7 +198,7 @@ class AliasTypeNode(TypeNode):
     @classmethod
     def class_(cls, ctype_name: str, class_name: str,
                export_name: str | None = None, comment: str | None = None):
-        return cls(ctype_name, ClassTypeNode(class_name),
+        return cls(ctype_name, ASTNodeTypeNode(class_name),
                    export_name, comment)
 
     @classmethod
@@ -235,7 +247,7 @@ class NDArrayTypeNode(TypeNode):
         yield "import typing"
 
 
-class ClassTypeNode(TypeNode):
+class ASTNodeTypeNode(TypeNode):
     def __init__(self, ctype_name: str, typename: str | None = None,
                  module_name: str | None = None) -> None:
         super().__init__(ctype_name)
@@ -287,14 +299,17 @@ class ClassTypeNode(TypeNode):
         else:
             yield "import " + self._module_name
 
+    @property
+    def is_resolved(self) -> bool:
+        return self._ast_node is not None or self._module_name is not None
+
     def resolve(self, root: ASTNode):
-        # Symbol already resolved
-        if self._ast_node is not None or self._module_name is not None:
+        if self.is_resolved:
             return
 
         node = _resolve_symbol(root, self.typename)
         if node is None:
-            raise ValueError("Failed to resolve '{}' exposed as '{}'".format(
+            raise TypeResolutionError('Failed to resolve "{}" exposed as "{}"'.format(
                 self.ctype_name, self.typename
             ))
         self._ast_node = weakref.proxy(node)
@@ -315,7 +330,7 @@ class ClassTypeNode(TypeNode):
         return self.typename
 
 
-class CollectionTypeNode(TypeNode):
+class AggregatedTypeNode(TypeNode):
     def __init__(self, ctype_name: str, items: Sequence[TypeNode]) -> None:
         super().__init__(ctype_name)
         self.items = list(items)
@@ -323,23 +338,43 @@ class CollectionTypeNode(TypeNode):
     @property
     def typename(self) -> str:
         return self.type_format.format(self.types_separator.join(
-            item.typename for item in self.items
+            item.typename for item in self
         ))
 
     @property
     def full_typename(self) -> str:
         return self.type_format.format(self.types_separator.join(
-            item.full_typename for item in self.items
+            item.full_typename for item in self
         ))
 
+    @property
+    def is_resolved(self) -> bool:
+        return all(item.is_resolved for item in self.items)
+
     def resolve(self, root: ASTNode):
-        for item in self.items:
-            item.resolve(root)
+        errors = []
+        for item in filter(lambda item: not item.is_resolved, self):
+            try:
+                item.resolve(root)
+            except TypeResolutionError as e:
+                errors.append(str(e))
+        if len(errors) > 0:
+            raise TypeResolutionError(
+                'Failed to resolve one of "{}" items. Errors: {}'.format(
+                    self.full_typename, errors
+                )
+            )
 
     def relative_typename(self, root: str) -> str:
         return self.type_format.format(self.types_separator.join(
-            item.relative_typename(root) for item in self.items
+            item.relative_typename(root) for item in self
         ))
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __len__(self) -> int:
+        return len(self.items)
 
     @abc.abstractproperty
     def type_format(self) -> str:
@@ -351,16 +386,16 @@ class CollectionTypeNode(TypeNode):
 
     @property
     def required_definition_imports(self) -> Generator[str, None, None]:
-        for item in self.items:
+        for item in self:
             yield from item.required_definition_imports
 
     @property
     def required_usage_imports(self) -> Generator[str, None, None]:
-        for item in self.items:
+        for item in self:
             yield from item.required_usage_imports
 
 
-class SequenceTypeNode(CollectionTypeNode):
+class SequenceTypeNode(AggregatedTypeNode):
     def __init__(self, ctype_name: str, item: TypeNode) -> None:
         super().__init__(ctype_name, (item, ))
 
@@ -383,7 +418,7 @@ class SequenceTypeNode(CollectionTypeNode):
         yield from super().required_usage_imports
 
 
-class TupleTypeNode(CollectionTypeNode):
+class TupleTypeNode(AggregatedTypeNode):
     @property
     def type_format(self):
         return "tuple[{}]"
@@ -393,7 +428,7 @@ class TupleTypeNode(CollectionTypeNode):
         return ", "
 
 
-class UnionTypeNode(CollectionTypeNode):
+class UnionTypeNode(AggregatedTypeNode):
     @property
     def type_format(self):
         return "{}"
@@ -408,7 +443,7 @@ class OptionalTypeNode(UnionTypeNode):
         super().__init__(value.ctype_name, (value, NoneTypeNode(value.ctype_name)))
 
 
-class CallableTypeNode(CollectionTypeNode):
+class CallableTypeNode(AggregatedTypeNode):
     def __init__(self, ctype_name: str, argument_type: TypeNode,
                  return_type: TypeNode = NoneTypeNode("void")) -> None:
         super().__init__(ctype_name, (argument_type, return_type))
@@ -440,7 +475,7 @@ class CallableTypeNode(CollectionTypeNode):
         yield from super().required_usage_imports
 
 
-class DictTypeNode(CollectionTypeNode):
+class DictTypeNode(AggregatedTypeNode):
     def __init__(self, ctype_name: str, key_type: TypeNode,
                  value_type: TypeNode) -> None:
         super().__init__(ctype_name, (key_type, value_type))

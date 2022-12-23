@@ -16,9 +16,8 @@ else:
 
 
 from typing_stubs_generation import (
-    convert_ctype_name_to_pytype,
-    generate_typing_stubs,
-    generate_aliases_module,
+    create_type_node,
+    generate_typing_module,
     ClassProperty,
     NamespaceNode,
     ClassNode,
@@ -970,7 +969,7 @@ def create_function_node_in_scope(scope, function):
         # but `variant.py_noptargs` refers to position in `py_arglist`
         for i, (_, argno) in enumerate(variant.py_arglist):
             arg_info = variant.args[argno]
-            type_node = convert_ctype_name_to_pytype(arg_info.tp)
+            type_node = create_type_node(arg_info.tp)
             default_value = None
             if len(arg_info.defval):
                 default_value = arg_info.defval
@@ -994,7 +993,7 @@ def create_function_node_in_scope(scope, function):
             return arguments, FunctionNode.RetType(
                 TupleTypeNode(
                     "return_type",
-                    tuple(convert_ctype_name_to_pytype(variant.args[argno].tp)
+                    tuple(create_type_node(variant.args[argno].tp)
                           for _, argno in variant.py_outlist)
                 )
             )
@@ -1003,13 +1002,13 @@ def create_function_node_in_scope(scope, function):
             # Can be represented as a function with a non-void return type in C++
             if variant.rettype:
                 return arguments, FunctionNode.RetType(
-                    convert_ctype_name_to_pytype(variant.rettype)
+                    create_type_node(variant.rettype)
                 )
             # or a function with void return type and output argument type
             # such non-const reference
             ret_type = variant.args[variant.py_outlist[0][1]].tp
             return arguments, FunctionNode.RetType(
-                convert_ctype_name_to_pytype(ret_type)
+                create_type_node(ret_type)
             )
         # Function without output types returns None in Python
         return arguments, None
@@ -1393,9 +1392,7 @@ class PythonWrapperGenerator(object):
                     properties.append(
                         ClassProperty(
                             name=export_property_name,
-                            type_node=convert_ctype_name_to_pytype(
-                                property.tp
-                            ),
+                            type_node=create_type_node(property.tp),
                             is_readonly=property.readonly
                         )
                     )
@@ -1470,9 +1467,7 @@ class PythonWrapperGenerator(object):
                 scope = find_scope(self.cv_root, full_enum_name)
             enum_node.parent = scope
 
-        self.cv_root.resolve_type_nodes(self.cv_root)
-        generate_aliases_module(self.cv_root, os.path.join(output_path, "stubs"))
-        generate_typing_stubs(self.cv_root, os.path.join(output_path, "stubs"))
+        generate_typing_module(self.cv_root, os.path.join(output_path, "stubs"))
         # That's it. Now save all the files
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
         self.save(output_path, "pyopencv_generated_funcs.h", self.code_funcs)

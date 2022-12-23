@@ -11,13 +11,13 @@ from .nodes import (
     AliasTypeNode,
     SequenceTypeNode,
     AnyTypeNode,
-    CollectionTypeNode,
+    AggregatedTypeNode,
 )
 
-from .type_conversion_utils import (
+from .types_conversion import (
     replace_template_parameters_with_placeholders,
     get_template_instantiation_type,
-    convert_ctype_name_to_pytype
+    create_type_node
 )
 
 from .ast_utils import (
@@ -26,4 +26,4 @@ from .ast_utils import (
     find_scope
 )
 
-from .generation import (generate_typing_stubs, generate_aliases_module)
+from .generation import generate_typing_module

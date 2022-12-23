@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import NamedTuple, Sequence, Type
 
 from .node import ASTNode, ASTNodeType
-from .type_node import TypeNode, NoneTypeNode
+from .type_node import TypeNode, NoneTypeNode, TypeResolutionError
 
 
 class FunctionNode(ASTNode):
@@ -62,22 +62,28 @@ class FunctionNode(ASTNode):
         self.overloads.append(FunctionNode.Overload(arguments, return_type))
 
     def resolve_type_nodes(self, root: ASTNode):
+        def has_unresolved_type_node(item) -> bool:
+            return item.type_node is not None and not item.type_node.is_resolved
+
         errors = []
         for overload in self.overloads:
-            for argument in overload.arguments:
-                if argument.type_node is not None:
-                    try:
-                        argument.type_node.resolve(root)
-                    except ValueError as e:
-                        errors.append(str(e))
-            if overload.return_type is not None:
+            for arg in filter(has_unresolved_type_node, overload.arguments):
+                try:
+                    arg.type_node.resolve(root)  # type: ignore
+                except TypeResolutionError as e:
+                    errors.append(
+                        'Failed to resolve "{}" argument: {}'.format(arg.name, e)
+                    )
+            if overload.return_type is not None and \
+                    has_unresolved_type_node(overload.return_type):
                 try:
                     overload.return_type.type_node.resolve(root)
-                except ValueError as e:
-                    errors.append(str(e))
+                except TypeResolutionError as e:
+                    errors.append('Failed to resolve return type: {}'.format(e))
         if len(errors) > 0:
-            raise ValueError(
-                "Failed to resolve '{}' function overload types: {}".format(
-                    self.full_export_name, errors
+            raise TypeResolutionError(
+                'Failed to resolve "{}" function against "{}". Errors: {}'.format(
+                    self.full_export_name, root.full_export_name,
+                    ", ".join("[{}]: {}".format(i, e) for i, e in enumerate(errors))
                 )
             )

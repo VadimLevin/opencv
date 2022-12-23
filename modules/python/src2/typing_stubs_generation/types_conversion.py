@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .aliases import ALIASES
+from .predefined_types import PREDEFINED_TYPES
 from .nodes.type_node import (
-    TypeNode, UnionTypeNode, SequenceTypeNode, ClassTypeNode, TupleTypeNode
+    TypeNode, UnionTypeNode, SequenceTypeNode, ASTNodeTypeNode, TupleTypeNode
 )
 
 
@@ -183,12 +183,12 @@ def convert_template_arguments_to_pytypes_arguments(template_args_str: str) \
         if _is_template_instantiation(template_arg):
             template_arg = template_arg.format(templated_args_types[template_index])
             template_index += 1
-        pytypes.append(convert_ctype_name_to_pytype(template_arg))
+        pytypes.append(create_type_node(template_arg))
     return pytypes
 
 
-def convert_ctype_name_to_pytype(typename: str,
-                                 original_ctype_name: str | None = None) -> TypeNode:
+def create_type_node(typename: str,
+                     original_ctype_name: str | None = None) -> TypeNode:
     """Converts C++ type name to corresponding Python type
 
     Args:
@@ -203,24 +203,24 @@ def convert_ctype_name_to_pytype(typename: str,
 
     typename = normalize_ctype_name(typename.strip())
 
-    # if typename is a known alias or direct substitution
-    type_node = ALIASES.get(typename)
+    # if typename is a known alias or has explicitly defined substitution
+    type_node = PREDEFINED_TYPES.get(typename)
     if type_node is not None:
         type_node.ctype_name = original_ctype_name
         return type_node
 
     # If typename is a known exported alias name (e.g. IndexParams or SearchParams)
-    for alias in ALIASES.values():
+    for alias in PREDEFINED_TYPES.values():
         if alias.typename == typename:
             return alias
 
     # explicit handling of special G-Api Types
     if typename.startswith("GArray_") or typename.startswith("GArray<"):
-        return ClassTypeNode("GArrayT")
+        return ASTNodeTypeNode("GArrayT")
     if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
-        return ClassTypeNode("GOpaqueT")
+        return ASTNodeTypeNode("GOpaqueT")
     if typename == "GStreamerPipeline" or typename.startswith("GStreamerSource"):
-        return ClassTypeNode("gst_" + typename)
+        return ASTNodeTypeNode("gst_" + typename)
     if typename.startswith("util_variant"):
         variant_types = get_template_instantiation_type(typename)
         return UnionTypeNode(
@@ -232,34 +232,28 @@ def convert_ctype_name_to_pytype(typename: str,
         # Case for "type*", "type_Ptr", "typePtr"
         for suffix in ("*", "_Ptr", "Ptr"):
             if typename.endswith(suffix):
-                return convert_ctype_name_to_pytype(typename[:-len(suffix)],
-                                                    original_ctype_name)
+                return create_type_node(typename[:-len(suffix)],
+                                        original_ctype_name)
         # Case Ptr<Type>
         if _is_template_instantiation(typename):
-            return convert_ctype_name_to_pytype(
-                get_template_instantiation_type(typename),
-                original_ctype_name
-            )
+            return create_type_node(get_template_instantiation_type(typename),
+                                    original_ctype_name)
         # Case Ptr_Type
-        return convert_ctype_name_to_pytype(
-            typename.split("_", maxsplit=1)[-1],
-            original_ctype_name
-        )
+        return create_type_node(typename.split("_", maxsplit=1)[-1],
+                                original_ctype_name)
 
     # if typename refers to a sequence type
     if is_sequence_type(typename):
         # Recursively convert sequence element type
         if _is_template_instantiation(typename):
-            inner_sequence_type = convert_ctype_name_to_pytype(
+            inner_sequence_type = create_type_node(
                 get_template_instantiation_type(typename)
             )
         else:
             # Handle vector_Type cases
             # maxsplit=1 is required to handle sequence of sequence e.g:
             # vector_vector_Mat -> Sequence[Sequence[Mat]]
-            inner_sequence_type = convert_ctype_name_to_pytype(
-                typename.split("_", 1)[-1]
-            )
+            inner_sequence_type = create_type_node(typename.split("_", 1)[-1])
         return SequenceTypeNode(original_ctype_name, inner_sequence_type)
 
     if is_tuple_type(typename):
@@ -269,7 +263,7 @@ def convert_ctype_name_to_pytype(typename: str,
             items=convert_template_arguments_to_pytypes_arguments(tuple_types)
         )
 
-    return ClassTypeNode(original_ctype_name, typename)
+    return ASTNodeTypeNode(original_ctype_name, typename)
 
 
 if __name__ == "__main__":

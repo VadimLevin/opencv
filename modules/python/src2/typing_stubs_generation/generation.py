@@ -468,7 +468,7 @@ def _generate_typing_module(root: NamespaceNode, output_path: Path):
 
         # Strip module prefix from aliased types
         aliases[typename] = alias_node.value.full_typename.replace(
-            root.export_name + ".typing", ""
+            root.export_name + ".typing.", ""
         )
         if alias_node.comment is not None:
             aliases[typename] += "  # " + alias_node.comment

@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os
 import hdr_parser, sys, re
 from string import Template
 from collections import namedtuple
@@ -1477,7 +1476,7 @@ class PythonWrapperGenerator(object):
                 scope = find_scope(self.cv_root, full_enum_name)
             enum_node.parent = scope
 
-        generate_typing_module(self.cv_root, os.path.join(output_path, "stubs"))
+        generate_typing_module(self.cv_root, output_path)
         # That's it. Now save all the files
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
         self.save(output_path, "pyopencv_generated_funcs.h", self.code_funcs)

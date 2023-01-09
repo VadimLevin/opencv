@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 __all__ = ("generate_typing_stubs", "generate_typing_module", )
 
 from io import StringIO
 from pathlib import Path
-from typing import Generator, Type, Callable, NamedTuple
+from typing import Generator, Type, Callable, NamedTuple, Union, Set, Dict
 
 from .predefined_types import PREDEFINED_TYPES
 
@@ -360,14 +358,14 @@ def _generate_enums_from_classes_tree(class_node, output_stream,
     return has_content
 
 
-def check_overload_presence(node: NamespaceNode | ClassNode) -> bool:
+def check_overload_presence(node: Union[NamespaceNode, ClassNode]) -> bool:
     for func_node in node.functions.values():
         if len(func_node.overloads):
             return True
     return False
 
 
-def _for_each_class(node: NamespaceNode | ClassNode) \
+def _for_each_class(node: Union[NamespaceNode, ClassNode]) \
         -> Generator[ClassNode, None, None]:
     for cls in node.classes.values():
         yield cls
@@ -375,7 +373,7 @@ def _for_each_class(node: NamespaceNode | ClassNode) \
             yield from _for_each_class(cls)
 
 
-def _for_each_function(node: NamespaceNode | ClassNode) \
+def _for_each_function(node: Union[NamespaceNode, ClassNode]) \
         -> Generator[FunctionNode, None, None]:
     for func in node.functions.values():
         yield func
@@ -383,15 +381,15 @@ def _for_each_function(node: NamespaceNode | ClassNode) \
         yield from _for_each_function(cls)
 
 
-def _for_each_function_overload(node: NamespaceNode | ClassNode) \
+def _for_each_function_overload(node: Union[NamespaceNode, ClassNode]) \
         -> Generator[FunctionNode.Overload, None, None]:
     for func in _for_each_function(node):
         for overload in func.overloads:
             yield overload
 
 
-def _collect_required_imports(root: NamespaceNode) -> set[str]:
-    required_imports: set[str] = set()
+def _collect_required_imports(root: NamespaceNode) -> Set[str]:
+    required_imports: Set[str] = set()
     # Check if typing module is required due to @overload decorator usage
     # Looking for module-level function with at least 1 overload
     has_overload = check_overload_presence(root)
@@ -434,12 +432,12 @@ def _collect_required_imports(root: NamespaceNode) -> set[str]:
     return required_imports
 
 
-def _add_required_usage_imports(type_node: TypeNode, required_imports: set[str]):
+def _add_required_usage_imports(type_node: TypeNode, required_imports: Set[str]):
     for required_import in type_node.required_usage_imports:
         required_imports.add(required_import)
 
 
-def _write_required_imports(required_imports: set[str], output_stream: StringIO):
+def _write_required_imports(required_imports: Set[str], output_stream: StringIO):
     for required_import in sorted(required_imports):
         output_stream.write(required_import)
         output_stream.write("\n")
@@ -478,8 +476,8 @@ def _generate_typing_module(root: NamespaceNode, output_path: Path):
     output_path = Path(output_path) / root.export_name / "typing"
     output_path.mkdir(parents=True, exist_ok=True)
 
-    required_imports: set[str] = set()
-    aliases: dict[str, str] = {}
+    required_imports: Set[str] = set()
+    aliases: Dict[str, str] = {}
 
     # Resolve each node and register aliases
     for node in PREDEFINED_TYPES.values():

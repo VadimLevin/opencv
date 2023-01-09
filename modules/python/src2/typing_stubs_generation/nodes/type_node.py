@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Sequence, Generator
+from typing import Sequence, Generator, Tuple, Optional
 import weakref
 import abc
 
@@ -59,7 +57,7 @@ class AnyTypeNode(TypeNode):
 
 
 class PrimitiveTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, typename: str | None = None) -> None:
+    def __init__(self, ctype_name: str, typename: Optional[str] = None) -> None:
         super().__init__(ctype_name)
         self._typename = typename if typename is not None else ctype_name
 
@@ -68,25 +66,25 @@ class PrimitiveTypeNode(TypeNode):
         return self._typename
 
     @classmethod
-    def int_(cls, ctype_name: str | None = None):
+    def int_(cls, ctype_name: Optional[str] = None):
         if ctype_name is None:
             ctype_name = "int"
         return PrimitiveTypeNode(ctype_name, typename="int")
 
     @classmethod
-    def float_(cls, ctype_name: str | None = None):
+    def float_(cls, ctype_name: Optional[str] = None):
         if ctype_name is None:
             ctype_name = "float"
         return PrimitiveTypeNode(ctype_name, typename="float")
 
     @classmethod
-    def bool_(cls, ctype_name: str | None = None):
+    def bool_(cls, ctype_name: Optional[str] = None):
         if ctype_name is None:
             ctype_name = "bool"
         return PrimitiveTypeNode(ctype_name, typename="bool")
 
     @classmethod
-    def str_(cls, ctype_name: str | None = None):
+    def str_(cls, ctype_name: Optional[str] = None):
         if ctype_name is None:
             ctype_name = "string"
         return PrimitiveTypeNode(ctype_name, "str")
@@ -94,7 +92,7 @@ class PrimitiveTypeNode(TypeNode):
 
 class AliasRefTypeNode(TypeNode):
     def __init__(self, alias_ctype_name: str,
-                 alias_export_name: str | None = None):
+                 alias_export_name: Optional[str] = None):
         super().__init__(alias_ctype_name)
         if alias_export_name is None:
             self.alias_export_name = alias_ctype_name
@@ -112,8 +110,8 @@ class AliasRefTypeNode(TypeNode):
 
 class AliasTypeNode(TypeNode):
     def __init__(self, ctype_name: str, value: TypeNode,
-                 export_name: str | None = None,
-                 comment: str | None = None) -> None:
+                 export_name: Optional[str] = None,
+                 comment: Optional[str] = None) -> None:
         super().__init__(ctype_name)
         self.value = value
         self._export_name = export_name
@@ -152,19 +150,19 @@ class AliasTypeNode(TypeNode):
             ) from e
 
     @classmethod
-    def int_(cls, ctype_name: str, export_name: str | None = None,
-             comment: str | None = None):
+    def int_(cls, ctype_name: str, export_name: Optional[str] = None,
+             comment: Optional[str] = None):
         return cls(ctype_name, PrimitiveTypeNode.int_(), export_name, comment)
 
     @classmethod
-    def float_(cls, ctype_name: str, export_name: str | None = None,
-               comment: str | None = None):
+    def float_(cls, ctype_name: str, export_name: Optional[str] = None,
+               comment: Optional[str] = None):
         return cls(ctype_name, PrimitiveTypeNode.float_(), export_name, comment)
 
     @classmethod
-    def array_(cls, ctype_name: str, shape: tuple[int, ...] | None,
-               dtype: str | None = None, export_name: str | None = None,
-               comment: str | None = None):
+    def array_(cls, ctype_name: str, shape: Optional[Tuple[int, ...]],
+               dtype: Optional[str] = None, export_name: Optional[str] = None,
+               comment: Optional[str] = None):
         if comment is None:
             comment = "Shape: " + str(shape)
         else:
@@ -173,60 +171,60 @@ class AliasTypeNode(TypeNode):
                    export_name, comment)
 
     @classmethod
-    def union_(cls, ctype_name: str, items: tuple[TypeNode, ...],
-               export_name: str | None = None, comment: str | None = None):
+    def union_(cls, ctype_name: str, items: Tuple[TypeNode, ...],
+               export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, UnionTypeNode(ctype_name, items),
                    export_name, comment)
 
     @classmethod
     def optional_(cls, ctype_name: str, item: TypeNode,
-                  export_name: str | None = None, comment: str | None = None):
+                  export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, OptionalTypeNode(item), export_name, comment)
 
     @classmethod
     def sequence_(cls, ctype_name: str, item: TypeNode,
-                  export_name: str | None = None, comment: str | None = None):
+                  export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, SequenceTypeNode(ctype_name, item),
                    export_name, comment)
 
     @classmethod
-    def tuple_(cls, ctype_name: str, items: tuple[TypeNode, ...],
-               export_name: str | None = None, comment: str | None = None):
+    def tuple_(cls, ctype_name: str, items: Tuple[TypeNode, ...],
+               export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, TupleTypeNode(ctype_name, items),
                    export_name, comment)
 
     @classmethod
     def class_(cls, ctype_name: str, class_name: str,
-               export_name: str | None = None, comment: str | None = None):
+               export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, ASTNodeTypeNode(class_name),
                    export_name, comment)
 
     @classmethod
     def callable_(cls, ctype_name: str, argument_type: TypeNode,
                   return_type: TypeNode = NoneTypeNode("void"),
-                  export_name: str | None = None, comment: str | None = None):
+                  export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name,
                    CallableTypeNode(ctype_name, argument_type, return_type),
                    export_name, comment)
 
     @classmethod
     def ref_(cls, ctype_name: str, alias_ctype_name: str,
-             alias_export_name: str | None = None,
-             export_name: str | None = None, comment: str | None = None):
+             alias_export_name: Optional[str] = None,
+             export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name,
                    AliasRefTypeNode(alias_ctype_name, alias_export_name),
                    export_name, comment)
 
     @classmethod
     def dict_(cls, ctype_name: str, key_type: TypeNode, value_type: TypeNode,
-              export_name: str | None = None, comment: str | None = None):
+              export_name: Optional[str] = None, comment: Optional[str] = None):
         return cls(ctype_name, DictTypeNode(ctype_name, key_type, value_type),
                    export_name, comment)
 
 
 class NDArrayTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, shape: tuple[int, ...] | None = None,
-                 dtype: str | None = None) -> None:
+    def __init__(self, ctype_name: str, shape: Optional[Tuple[int, ...]] = None,
+                 dtype: Optional[str] = None) -> None:
         super().__init__(ctype_name)
         self.shape = shape
         self.dtype = dtype
@@ -248,12 +246,12 @@ class NDArrayTypeNode(TypeNode):
 
 
 class ASTNodeTypeNode(TypeNode):
-    def __init__(self, ctype_name: str, typename: str | None = None,
-                 module_name: str | None = None) -> None:
+    def __init__(self, ctype_name: str, typename: Optional[str] = None,
+                 module_name: Optional[str] = None) -> None:
         super().__init__(ctype_name)
         self._typename = typename if typename is not None else ctype_name
         self._module_name = module_name
-        self._ast_node: weakref.ProxyType[ASTNode] | None = None
+        self._ast_node: Optional[weakref.ProxyType[ASTNode]] = None
 
     @property
     def typename(self) -> str:
@@ -421,7 +419,7 @@ class SequenceTypeNode(AggregatedTypeNode):
 class TupleTypeNode(AggregatedTypeNode):
     @property
     def type_format(self):
-        return "tuple[{}]"
+        return "Tuple[{}]"
 
     @property
     def types_separator(self) -> str:
@@ -497,9 +495,9 @@ class DictTypeNode(AggregatedTypeNode):
         return ", "
 
 
-def _resolve_symbol(root: ASTNode | None, symbol: str) -> ASTNode | None:
-    def search_down_symbol(scope: ASTNode | None,
-                           scope_sep: str) -> ASTNode | None:
+def _resolve_symbol(root: Optional[ASTNode], symbol: str) -> Optional[ASTNode]:
+    def search_down_symbol(scope: Optional[ASTNode],
+                           scope_sep: str) -> Optional[ASTNode]:
         parts = symbol.split(scope_sep, maxsplit=1)
         while len(parts) == 2:
             # Try to find narrow scope
@@ -519,7 +517,7 @@ def _resolve_symbol(root: ASTNode | None, symbol: str) -> ASTNode | None:
     # Looking for exact symbol match
     for attr in filter(lambda attr: hasattr(root, attr),
                        ("namespaces", "classes", "enumerations")):
-        nodes_dict = getattr(root, attr)  # type: dict[str, ASTNode]
+        nodes_dict = getattr(root, attr)
         node = nodes_dict.get(symbol, None)
         if node is not None:
             return node

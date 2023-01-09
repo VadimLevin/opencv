@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Type, Iterable, Sequence
+from typing import Type, Iterable, Sequence, Tuple, Optional, Dict
 import itertools
 import weakref
 
@@ -20,7 +18,7 @@ class NamespaceNode(ASTNode):
         return ASTNodeType.Namespace
 
     @property
-    def children_types(self) -> tuple[Type[ASTNode], ...]:
+    def children_types(self) -> Tuple[Type[ASTNode], ...]:
         return (NamespaceNode, ClassNode, FunctionNode,
                 EnumerationNode, ConstantNode)
 
@@ -32,23 +30,23 @@ class NamespaceNode(ASTNode):
         )))
 
     @property
-    def namespaces(self) -> dict[str, "NamespaceNode"]:
+    def namespaces(self) -> Dict[str, "NamespaceNode"]:
         return self._children[NamespaceNode]
 
     @property
-    def classes(self) -> dict[str, ClassNode]:
+    def classes(self) -> Dict[str, ClassNode]:
         return self._children[ClassNode]
 
     @property
-    def functions(self) -> dict[str, FunctionNode]:
+    def functions(self) -> Dict[str, FunctionNode]:
         return self._children[FunctionNode]
 
     @property
-    def enumerations(self) -> dict[str, EnumerationNode]:
+    def enumerations(self) -> Dict[str, EnumerationNode]:
         return self._children[EnumerationNode]
 
     @property
-    def constants(self) -> dict[str, ConstantNode]:
+    def constants(self) -> Dict[str, ConstantNode]:
         return self._children[ConstantNode]
 
     def add_namespace(self, name: str) -> "NamespaceNode":
@@ -61,7 +59,7 @@ class NamespaceNode(ASTNode):
                                properties=properties)
 
     def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
-                     return_type: FunctionNode.RetType | None = None) -> FunctionNode:
+                     return_type: Optional[FunctionNode.RetType] = None) -> FunctionNode:
         return self._add_child(FunctionNode, name, arguments=arguments,
                                return_type=return_type)
 
@@ -71,7 +69,7 @@ class NamespaceNode(ASTNode):
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
 
-    def resolve_type_nodes(self, root: ASTNode | None = None):
+    def resolve_type_nodes(self, root: Optional[ASTNode] = None):
         for child in itertools.chain(self.functions.values(),
                                      self.classes.values(),
                                      self.namespaces.values()):

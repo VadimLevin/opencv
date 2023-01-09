@@ -9,4 +9,3 @@ from .type_node import (
     ASTNodeTypeNode, AliasTypeNode, SequenceTypeNode, AnyTypeNode,
     AggregatedTypeNode, NDArrayTypeNode, AliasRefTypeNode,
 )
-

@@ -1,4 +1,4 @@
-from __future__ import annotations
+from typing import Tuple, List, Optional
 
 from .predefined_types import PREDEFINED_TYPES
 from .nodes.type_node import (
@@ -7,7 +7,7 @@ from .nodes.type_node import (
 
 
 def replace_template_parameters_with_placeholders(string: str) \
-        -> tuple[str, tuple[str, ...]]:
+        -> Tuple[str, Tuple[str, ...]]:
     """Replaces template parameters with `format` placeholders for all template
     instantiations in provided string.
     Only outermost template parameters are replaced.
@@ -59,7 +59,7 @@ def replace_template_parameters_with_placeholders(string: str) \
                 template_brackets_indices.append((template_start_index, i))
     assert template_instantiations_count == 0, \
         "Provided string is ill-formed. There are more '<' than '>'."
-    template_args = []  # type: list[str]
+    template_args: List[str] = []
     # Reversed loop is required to preserve template start/end indices
     for i, j in reversed(template_brackets_indices):
         template_args.insert(0, string[i:j])
@@ -167,7 +167,7 @@ def _is_template_instantiation(typename: str) -> bool:
 
 
 def convert_template_arguments_to_pytypes_arguments(template_args_str: str) \
-        -> list[TypeNode]:
+        -> List[TypeNode]:
     pytypes = []
     # If template arguments contains types that are also templates
     # - replace it with format placeholder and than reconstruct original type.
@@ -188,7 +188,7 @@ def convert_template_arguments_to_pytypes_arguments(template_args_str: str) \
 
 
 def create_type_node(typename: str,
-                     original_ctype_name: str | None = None) -> TypeNode:
+                     original_ctype_name: Optional[str] = None) -> TypeNode:
     """Converts C++ type name to corresponding Python type
 
     Args:

@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import NamedTuple, Sequence, Type
+from typing import NamedTuple, Sequence, Type, Optional, Tuple, List
 
 from .node import ASTNode, ASTNodeType
 from .type_node import TypeNode, NoneTypeNode, TypeResolutionError
@@ -9,14 +7,14 @@ from .type_node import TypeNode, NoneTypeNode, TypeResolutionError
 class FunctionNode(ASTNode):
     class Arg(NamedTuple):
         name: str
-        type_node: TypeNode | None = None
-        default_value: str | None = None
+        type_node: Optional[TypeNode] = None
+        default_value: Optional[str] = None
 
         @property
-        def typename(self) -> str | None:
+        def typename(self) -> Optional[str]:
             return getattr(self.type_node, "full_typename", None)
 
-        def relative_typename(self, root: str) -> str | None:
+        def relative_typename(self, root: str) -> Optional[str]:
             if self.type_node is not None:
                 return self.type_node.relative_typename(root)
             return None
@@ -28,22 +26,22 @@ class FunctionNode(ASTNode):
         def typename(self) -> str:
             return self.type_node.full_typename
 
-        def relative_typename(self, root: str) -> str | None:
+        def relative_typename(self, root: str) -> Optional[str]:
             return self.type_node.relative_typename(root)
 
     class Overload(NamedTuple):
         arguments: Sequence["FunctionNode.Arg"] = ()
-        return_type: "FunctionNode.RetType" | None = None
+        return_type: Optional["FunctionNode.RetType"] = None
 
     def __init__(self, name: str,
-                 arguments: Sequence["FunctionNode.Arg"] | None = None,
-                 return_type: "FunctionNode.RetType" | None = None,
+                 arguments: Optional[Sequence["FunctionNode.Arg"]] = None,
+                 return_type: Optional["FunctionNode.RetType"] = None,
                  is_static: bool = False,
                  is_classmethod: bool = False,
-                 parent: ASTNode | None = None,
-                 export_name: str | None = None) -> None:
+                 parent: Optional[ASTNode] = None,
+                 export_name: Optional[str] = None) -> None:
         super().__init__(name, parent, export_name)
-        self.overloads: list[FunctionNode.Overload] = []
+        self.overloads: List[FunctionNode.Overload] = []
         self.is_static = is_static
         self.is_classmethod = is_classmethod
         if arguments is not None:
@@ -54,11 +52,11 @@ class FunctionNode(ASTNode):
         return ASTNodeType.Function
 
     @property
-    def children_types(self) -> tuple[Type[ASTNode], ...]:
+    def children_types(self) -> Tuple[Type[ASTNode], ...]:
         return ()
 
     def add_overload(self, arguments: Sequence["FunctionNode.Arg"] = (),
-                     return_type: "FunctionNode.RetType" | None = None):
+                     return_type: Optional["FunctionNode.RetType"] = None):
         self.overloads.append(FunctionNode.Overload(arguments, return_type))
 
     def resolve_type_nodes(self, root: ASTNode):

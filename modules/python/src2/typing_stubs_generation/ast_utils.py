@@ -1,9 +1,18 @@
-from typing import NamedTuple, Sequence, Tuple, Union, List
+from typing import NamedTuple, Sequence, Tuple, Union, List, Dict
+import keyword
 
-from .nodes import NamespaceNode, ClassNode
+from .nodes import (NamespaceNode, ClassNode, FunctionNode, EnumerationNode,
+                    ClassProperty,
+                    OptionalTypeNode, TupleTypeNode)
+
+from .types_conversion import create_type_node
 
 
 class ScopeNotFoundError(Exception):
+    pass
+
+
+class SymbolNotFoundError(Exception):
     pass
 
 
@@ -64,3 +73,162 @@ def find_scope(root: NamespaceNode, symbol_name: SymbolName,
             )
         scope = scope.classes[class_name]
     return scope
+
+
+def find_class_node(root: NamespaceNode, full_class_name: str,
+                    namespaces: Sequence[str]) -> ClassNode:
+    symbol_name = SymbolName.parse(full_class_name, namespaces)
+    scope = find_scope(root, symbol_name)
+    if symbol_name.name not in scope.classes:
+        raise SymbolNotFoundError("Can't find {} in its scope".format(symbol_name))
+    return scope.classes[symbol_name.name]
+
+
+def create_function_node_in_scope(scope: Union[NamespaceNode, ClassNode],
+                                  func_info):
+    def prepare_overload_arguments_and_return_type(variant):
+        arguments = []  # type: list[FunctionNode.Arg]
+        # Enumerate is requried, because `argno` in `variant.py_arglist`
+        # refers to position of argument in C++ function interface,
+        # but `variant.py_noptargs` refers to position in `py_arglist`
+        for i, (_, argno) in enumerate(variant.py_arglist):
+            arg_info = variant.args[argno]
+            type_node = create_type_node(arg_info.tp)
+            default_value = None
+            if len(arg_info.defval):
+                default_value = arg_info.defval
+            # If argument is optional and can be None - make its type optional
+            if variant.is_arg_optional(i):
+                if arg_info.py_outputarg:
+                    type_node = OptionalTypeNode(type_node)
+                    default_value = "None"
+                elif arg_info.isbig() and "None" not in type_node.typename:
+                    # but avoid duplication of the optioness
+                    type_node = OptionalTypeNode(type_node)
+            arguments.append(
+                FunctionNode.Arg(arg_info.name, type_node=type_node,
+                                 default_value=default_value)
+            )
+        if func_info.isconstructor:
+            return arguments, None
+
+        # Function has more than 1 output argument, so its return type is a tuple
+        if len(variant.py_outlist) > 1:
+            ret_types = []
+            # Actual returned value of the function goes first
+            if variant.py_outlist[0][1] == -1:
+                ret_types.append(create_type_node(variant.rettype))
+                outlist = variant.py_outlist[1:]
+            else:
+                outlist = variant.py_outlist
+            for _, argno in outlist:
+                assert argno >= 0, \
+                    "Logic Error! Outlist contains function return type: {}".format(
+                        outlist
+                    )
+
+                ret_types.append(create_type_node(variant.args[argno].tp))
+
+            return arguments, FunctionNode.RetType(
+                TupleTypeNode("return_type", ret_types)
+            )
+        # Function with 1 output argument in Python
+        if len(variant.py_outlist) == 1:
+            # Can be represented as a function with a non-void return type in C++
+            if variant.rettype:
+                return arguments, FunctionNode.RetType(
+                    create_type_node(variant.rettype)
+                )
+            # or a function with void return type and output argument type
+            # such non-const reference
+            ret_type = variant.args[variant.py_outlist[0][1]].tp
+            return arguments, FunctionNode.RetType(
+                create_type_node(ret_type)
+            )
+        # Function without output types returns None in Python
+        return arguments, None
+
+    function_node = FunctionNode(func_info.name)
+    function_node.parent = scope
+    if func_info.isconstructor:
+        function_node.export_name = "__init__"
+    for variant in func_info.variants:
+        arguments, ret_type = prepare_overload_arguments_and_return_type(variant)
+        if isinstance(scope, ClassNode):
+            if func_info.is_static:
+                if ret_type is not None and ret_type.typename.endswith(scope.name):
+                    function_node.is_classmethod = True
+                    arguments.insert(0, FunctionNode.Arg("cls"))
+                else:
+                    function_node.is_static = True
+            else:
+                arguments.insert(0, FunctionNode.Arg("self"))
+        function_node.add_overload(arguments, ret_type)
+    return function_node
+
+
+def create_function_node(root: NamespaceNode, func_info) -> FunctionNode:
+    func_symbol_name = SymbolName(
+        func_info.namespace.split(".") if len(func_info.namespace) else (),
+        func_info.classname.split(".") if len(func_info.classname) else (),
+        func_info.name
+    )
+    return create_function_node_in_scope(find_scope(root, func_symbol_name),
+                                         func_info)
+
+
+def create_class_node_in_scope(scope: Union[NamespaceNode, ClassNode],
+                               symbol_name: SymbolName,
+                               class_info) -> ClassNode:
+    properties = []
+    for property in class_info.props:
+        export_property_name = property.name
+        if keyword.iskeyword(export_property_name):
+            export_property_name += "_"
+        properties.append(
+            ClassProperty(
+                name=export_property_name,
+                type_node=create_type_node(property.tp),
+                is_readonly=property.readonly
+            )
+        )
+    class_node = scope.add_class(symbol_name.name,
+                                 properties=properties)
+    class_node.export_name = class_info.export_name
+    if class_info.constructor is not None:
+        create_function_node_in_scope(class_node, class_info.constructor)
+    for method in class_info.methods.values():
+        create_function_node_in_scope(class_node, method)
+    return class_node
+
+
+def create_class_node(root: NamespaceNode, class_info,
+                      namespaces: Sequence[str]) -> ClassNode:
+    symbol_name = SymbolName.parse(class_info.full_original_name, namespaces)
+    scope = find_scope(root, symbol_name)
+    return create_class_node_in_scope(scope, symbol_name, class_info)
+
+
+def resolve_enum_scopes(root: NamespaceNode,
+                        enums: Dict[SymbolName, EnumerationNode]):
+    for symbol_name, enum_node in enums.items():
+        if symbol_name.classes:
+            try:
+                scope = find_scope(root, symbol_name)
+            except ScopeNotFoundError:
+                # Scope can't be found if enumeration is a part of class
+                # that is not exported.
+                # Create class node, but mark it as not exported
+                for i, class_name in enumerate(symbol_name.classes):
+                    scope = find_scope(root,
+                                       SymbolName(symbol_name.namespaces,
+                                                  classes=symbol_name.classes[:i],
+                                                  name=class_name))
+                    if class_name in scope.classes:
+                        continue
+                    class_node = scope.add_class(class_name)
+                    class_node.is_exported = False
+                scope = find_scope(root, symbol_name)
+        else:
+            scope = find_scope(root, symbol_name)
+        enum_node.parent = scope

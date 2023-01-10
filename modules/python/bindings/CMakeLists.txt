@@ -83,6 +83,7 @@ add_custom_command(
     DEPENDS "${PYTHON_SOURCE_DIR}/src2/gen2.py"
             "${PYTHON_SOURCE_DIR}/src2/hdr_parser.py"
             "${typing_stubs_generation_files}"
+            "${PYTHON_SOURCE_DIR}/src2/typing_stubs_generator.py"
             # not a real build dependency (file(WRITE) result): ${CMAKE_CURRENT_BINARY_DIR}/headers.txt
             ${opencv_hdrs}
     COMMENT "Generate files for Python bindings and documentation"

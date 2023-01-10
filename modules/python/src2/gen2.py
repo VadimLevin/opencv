@@ -6,27 +6,28 @@ from string import Template
 from collections import namedtuple
 from itertools import chain
 
+from typing_stubs_generator import TypingStubsGenerator
 
 if sys.version_info[0] >= 3:
     from io import StringIO
+
 else:
     from cStringIO import StringIO
 
+if sys.version_info >= (3, 6):
+    from typing_stubs_generation import SymbolName
+else:
+    SymbolName = namedtuple('SymbolName', ('namespaces', 'classes', 'name'))
 
-from typing_stubs_generation import (
-    create_type_node,
-    generate_typing_module,
-    ClassProperty,
-    NamespaceNode,
-    ClassNode,
-    FunctionNode,
-    EnumerationNode,
-    OptionalTypeNode,
-    TupleTypeNode,
-    SymbolName,
-    find_scope,
-    ScopeNotFoundError
-)
+    def parse_symbol_name(cls, full_symbol_name, known_namespaces):
+        chunks = full_symbol_name.split('.')
+        namespaces, name = chunks[:-1], chunks[-1]
+        classes = []
+        while len(namespaces) > 0 and '.'.join(namespaces) not in known_namespaces:
+            classes.insert(0, namespaces.pop())
+        return cls(tuple(namespaces), tuple(classes), name)
+
+    setattr(SymbolName, "parse", classmethod(parse_symbol_name))
 
 
 forbidden_arg_types = ["void*"]
@@ -936,102 +937,6 @@ class Namespace(object):
         self.consts = {}
 
 
-def create_function_node_in_scope(scope, function):
-    # type (NamespaceNode | ClassNode, FuncInfo, PythonWrapperGenerator) -> FunctionNode
-    def prepare_overload_arguments_and_return_type(variant):
-        # type (FuncVariant) -> list[FunctionNode.Arg], FunctionNode.RetType
-        arguments = []  # type: list[FunctionNode.Arg]
-        # Enumerate is requried, because `argno` in `variant.py_arglist`
-        # refers to position of argument in C++ function interface,
-        # but `variant.py_noptargs` refers to position in `py_arglist`
-        for i, (_, argno) in enumerate(variant.py_arglist):
-            arg_info = variant.args[argno]
-            type_node = create_type_node(arg_info.tp)
-            default_value = None
-            if len(arg_info.defval):
-                default_value = arg_info.defval
-            # If argument is optional and can be None - make its type optional
-            if variant.is_arg_optional(i):
-                if arg_info.py_outputarg:
-                    type_node = OptionalTypeNode(type_node)
-                    default_value = "None"
-                elif arg_info.isbig() and "None" not in type_node.typename:
-                    # but avoid duplication of the optioness
-                    type_node = OptionalTypeNode(type_node)
-            arguments.append(
-                FunctionNode.Arg(arg_info.name, type_node=type_node,
-                                 default_value=default_value)
-            )
-        if function.isconstructor:
-            return arguments, None
-
-        # Function has more than 1 output argument, so its return type is a tuple
-        if len(variant.py_outlist) > 1:
-            ret_types = []
-            # Actual returned value of the function goes first
-            if variant.py_outlist[0][1] == -1:
-                ret_types.append(create_type_node(variant.rettype))
-                outlist = variant.py_outlist[1:]
-            else:
-                outlist = variant.py_outlist
-            for _, argno in outlist:
-                assert argno >= 0, \
-                    "Logic Error! Outlist contains function return type: {}".format(
-                        outlist
-                    )
-
-                ret_types.append(create_type_node(variant.args[argno].tp))
-
-            return arguments, FunctionNode.RetType(
-                TupleTypeNode("return_type", ret_types)
-            )
-        # Function with 1 output argument in Python
-        if len(variant.py_outlist) == 1:
-            # Can be represented as a function with a non-void return type in C++
-            if variant.rettype:
-                return arguments, FunctionNode.RetType(
-                    create_type_node(variant.rettype)
-                )
-            # or a function with void return type and output argument type
-            # such non-const reference
-            ret_type = variant.args[variant.py_outlist[0][1]].tp
-            return arguments, FunctionNode.RetType(
-                create_type_node(ret_type)
-            )
-        # Function without output types returns None in Python
-        return arguments, None
-
-    function_node = FunctionNode(function.name)
-    function_node.parent = scope
-    if function.isconstructor:
-        function_node.export_name = "__init__"
-    for variant in function.variants:
-        arguments, ret_type = prepare_overload_arguments_and_return_type(variant)
-        if isinstance(scope, ClassNode):
-            if function.is_static:
-                if ret_type is not None and ret_type.typename.endswith(scope.name):
-                    function_node.is_classmethod = True
-                    arguments.insert(0, FunctionNode.Arg("cls"))
-                else:
-                    function_node.is_static = True
-            else:
-                arguments.insert(0, FunctionNode.Arg("self"))
-        function_node.add_overload(arguments, ret_type)
-    return function_node
-
-
-def create_function_node(root, function):
-    # type: (NamespaceNode, FuncInfo) -> FunctionNode
-
-    func_symbol_name = SymbolName(
-        function.namespace.split(".") if len(function.namespace) else (),
-        function.classname.split(".") if len(function.classname) else (),
-        function.name
-    )
-    return create_function_node_in_scope(find_scope(root, func_symbol_name),
-                                         function)
-
-
 class PythonWrapperGenerator(object):
     def __init__(self):
         self.clear()
@@ -1041,9 +946,7 @@ class PythonWrapperGenerator(object):
         self.namespaces = {}
         self.consts = {}
         self.enums = {}
-        self.cv_root = NamespaceNode("cv", export_name="cv2")
-        self.exported_enums = {}
-        self.type_hints_ignored_functions = set()
+        self.typing_stubs_generator = TypingStubsGenerator()
         self.code_include = StringIO()
         self.code_enums = StringIO()
         self.code_types = StringIO()
@@ -1089,7 +992,7 @@ class PythonWrapperGenerator(object):
         # library import
         return original_scope_name
 
-    def split_decl_name(self, name: str) -> SymbolName:
+    def split_decl_name(self, name):
         return SymbolName.parse(name, self.parser.namespaces)
 
     def add_const(self, name, decl):
@@ -1109,19 +1012,10 @@ class PythonWrapperGenerator(object):
         py_signatures.append(dict(name=py_name, value=value))
         #print(cname + ' => ' + str(py_name) + ' (value=' + value + ')')
 
-    def add_enum(self, name: str, decl):
+    def add_enum(self, name, decl):
         enumeration_name = SymbolName.parse(name, self.parser.namespaces)
         is_scoped_enum = decl[0].startswith("enum class") \
             or decl[0].startswith("enum struct")
-        if enumeration_name in self.exported_enums:
-            assert enumeration_name.name == "<unnamed>", \
-                "Trying to export 2 enums with same symbol " \
-                "name: {}".format(enumeration_name)
-            enumeration_node = self.exported_enums[enumeration_name]
-        else:
-            enumeration_node = EnumerationNode(enumeration_name.name,
-                                               is_scoped_enum)
-            self.exported_enums[enumeration_name] = enumeration_node
 
         wname = normalize_class_name(name)
         if wname.endswith("<unnamed>"):
@@ -1129,14 +1023,14 @@ class PythonWrapperGenerator(object):
         else:
             self.enums[wname] = name
         const_decls = decl[3]
+        enum_entries = {}
         for decl in const_decls:
-            enumeration_node.add_constant(name=decl[0].split(".")[-1],
-                                          value=decl[1])
+            enum_entries[decl[0].split(".")[-1]] = decl[1]
 
-            name = decl[0].replace("const ", "").strip()
-            self.add_const(name, decl)
-            _, classes, name = self.split_decl_name(name)
-            name = '_'.join(chain(classes, (name, )))
+            self.add_const(decl[0].replace("const ", "").strip(), decl)
+
+        self.typing_stubs_generator.add_enum(enumeration_name, is_scoped_enum,
+                                             enum_entries)
 
     def add_func(self, decl):
         namespace, classes, barename = self.split_decl_name(decl[0])
@@ -1188,12 +1082,12 @@ class PythonWrapperGenerator(object):
                 w_classes.append(w_classname)
             g_wname = "_".join(w_classes+[name])
             func_map = self.namespaces.setdefault(namespace_str, Namespace()).funcs
-            self.type_hints_ignored_functions.add(g_name)
+            self.typing_stubs_generator.add_ignored_function_name(g_name)
             # Exports static function with internal name (backward compatibility)
             func = func_map.setdefault(g_name, FuncInfo("", g_name, cname, isconstructor, namespace_str, False))
             func.add_variant(decl, isphantom)
             if g_wname != g_name:  # TODO OpenCV 5.0
-                self.type_hints_ignored_functions.add(g_wname)
+                self.typing_stubs_generator.add_ignored_function_name(g_wname)
                 wfunc = func_map.setdefault(g_wname, FuncInfo("", g_wname, cname, isconstructor, namespace_str, False))
                 wfunc.add_variant(decl, isphantom)
         else:
@@ -1209,7 +1103,6 @@ class PythonWrapperGenerator(object):
 
         if classname and isconstructor:
             self.classes[classname].constructor = func
-
 
     def gen_namespace(self, ns_name):
         ns = self.namespaces[ns_name]
@@ -1361,36 +1254,16 @@ class PythonWrapperGenerator(object):
                 continue
 
             def _registerType(classinfo):
-                # type: (ClassInfo) -> ClassNode
-
-                class_symbol_name = SymbolName.parse(classinfo.full_original_name,
-                                                     self.parser.namespaces)
-                scope = find_scope(self.cv_root, class_symbol_name)
-
                 if classinfo.decl_idx in published_types:
                     #print(classinfo.decl_idx, classinfo.name, ' - already published')
-                    return scope.classes[class_symbol_name.name]
+                    return self.typing_stubs_generator.find_class_node(
+                        classinfo, self.parser.namespaces
+                    )
                 published_types.add(classinfo.decl_idx)
 
-                properties = []
-                for property in classinfo.props:
-                    export_property_name = property.name
-                    if export_property_name in python_reserved_keywords:
-                        export_property_name += "_"
-                    properties.append(
-                        ClassProperty(
-                            name=export_property_name,
-                            type_node=create_type_node(property.tp),
-                            is_readonly=property.readonly
-                        )
-                    )
-                class_node = scope.add_class(class_symbol_name.name,
-                                             properties=properties)
-                class_node.export_name = classinfo.export_name
-                if classinfo.constructor is not None:
-                    create_function_node_in_scope(class_node, classinfo.constructor)
-                for method in classinfo.methods.values():
-                    create_function_node_in_scope(class_node, method)
+                class_node = self.typing_stubs_generator.create_class_node(
+                    classinfo, self.parser.namespaces
+                )
 
                 if classinfo.base and classinfo.base in self.classes:
                     base_classinfo = self.classes[classinfo.base]
@@ -1413,9 +1286,8 @@ class PythonWrapperGenerator(object):
                     continue
                 code = func.gen_code(self)
                 self.code_funcs.write(code)
-                if name in self.type_hints_ignored_functions:
-                    continue
-                create_function_node(self.cv_root, func)
+                if name not in self.typing_stubs_generator.type_hints_ignored_functions:
+                    self.typing_stubs_generator.create_function_node(func)
 
             self.gen_namespace(ns_name)
             self.code_ns_init.write('CVPY_MODULE("{}", {});\n'.format(ns_name[2:], normalize_class_name(ns_name)))
@@ -1432,30 +1304,8 @@ class PythonWrapperGenerator(object):
         for name, constinfo in constlist:
             self.gen_const_reg(constinfo)
 
-        # All symbols are collected
-        for full_enum_name, enum_node in self.exported_enums.items():
-            if len(full_enum_name.classes) > 0:
-                try:
-                    scope = find_scope(self.cv_root, full_enum_name)
-                except ScopeNotFoundError:
-                    # Scope can't be found if enumeration is a part of class
-                    # that is not exported.
-                    # Create class node, but mark it as not exported
-                    for i, class_name in enumerate(full_enum_name.classes):
-                        scope = find_scope(self.cv_root,
-                                           SymbolName(full_enum_name.namespaces,
-                                                      classes=full_enum_name.classes[:i],
-                                                      name=class_name))
-                        if class_name in scope.classes:
-                            continue
-                        class_node = scope.add_class(class_name)
-                        class_node.is_exported = False
-                    scope = find_scope(self.cv_root, full_enum_name)
-            else:
-                scope = find_scope(self.cv_root, full_enum_name)
-            enum_node.parent = scope
-
-        generate_typing_module(self.cv_root, output_path)
+        # All symbols are collected, generating typing stubs
+        self.typing_stubs_generator.generate(output_path)
         # That's it. Now save all the files
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
         self.save(output_path, "pyopencv_generated_funcs.h", self.code_funcs)

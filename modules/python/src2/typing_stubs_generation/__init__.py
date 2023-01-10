@@ -23,7 +23,12 @@ from .types_conversion import (
 from .ast_utils import (
     SymbolName,
     ScopeNotFoundError,
-    find_scope
+    SymbolNotFoundError,
+    find_scope,
+    find_class_node,
+    create_class_node,
+    create_function_node,
+    resolve_enum_scopes
 )
 
 from .generation import generate_typing_module

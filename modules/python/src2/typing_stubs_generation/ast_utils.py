@@ -1,9 +1,9 @@
 from typing import NamedTuple, Sequence, Tuple, Union, List, Dict
 import keyword
 
-from .nodes import (NamespaceNode, ClassNode, FunctionNode, EnumerationNode,
-                    ClassProperty,
-                    OptionalTypeNode, TupleTypeNode)
+from .nodes import (ASTNode, NamespaceNode, ClassNode, FunctionNode,
+                    EnumerationNode, ClassProperty, OptionalTypeNode,
+                    TupleTypeNode)
 
 from .types_conversion import create_type_node
 
@@ -22,7 +22,7 @@ class SymbolName(NamedTuple):
     name: str
 
     def __str__(self) -> str:
-        return "(namespace='{}', class='{}', name={})".format(
+        return '(namespace="{}", classes="{}", name="{}")'.format(
             '::'.join(self.namespaces),
             '::'.join(self.classes),
             self.name
@@ -33,8 +33,37 @@ class SymbolName(NamedTuple):
 
     @classmethod
     def parse(cls, full_symbol_name: str,
-              known_namespaces: Sequence[str]) -> "SymbolName":
-        chunks = full_symbol_name.split('.')
+              known_namespaces: Sequence[str],
+              symbol_parts_delimiter: str = '.') -> "SymbolName":
+        """Performs contextual symbol name parsing into namespaces, classes
+        and "bare" symbol name.
+
+        Args:
+            full_symbol_name (str): Input string to parse symbol name from.
+            known_namespaces (Sequence[str]): Collection of namespace that was
+                met during C++ headers parsing.
+            symbol_parts_delimiter (str, optional): Delimiter string used to
+                split `full_symbol_name` string into chunks. Defaults to '.'.
+
+        Returns:
+            SymbolName: Parsed symbol name structure.
+
+        >>> SymbolName.parse('cv.ns.Feature', ('cv', 'cv.ns'))
+        (namespace="cv::ns", classes="", name="Feature")
+
+        >>> SymbolName.parse('cv.ns.Feature', ())
+        (namespace="", classes="cv::ns", name="Feature")
+
+        >>> SymbolName.parse('cv.ns.Feature.Params', ('cv', 'cv.ns'))
+        (namespace="cv::ns", classes="Feature", name="Params")
+
+        >>> SymbolName.parse('cv::ns::Feature::Params::serialize',
+        ...                  known_namespaces=('cv', 'cv.ns'),
+        ...                  symbol_parts_delimiter='::')
+        (namespace="cv::ns", classes="Feature::Params", name="serialize")
+        """
+
+        chunks = full_symbol_name.split(symbol_parts_delimiter)
         namespaces, name = chunks[:-1], chunks[-1]
         classes: List[str] = []
         while len(namespaces) > 0 and '.'.join(namespaces) not in known_namespaces:
@@ -44,6 +73,44 @@ class SymbolName(NamedTuple):
 
 def find_scope(root: NamespaceNode, symbol_name: SymbolName,
                create_missing_namespaces: bool = True) -> Union[NamespaceNode, ClassNode]:
+    """Traverses down nodes hierarchy to the direct parent of the node referred
+    by `symbol_name`.
+
+    Args:
+        root (NamespaceNode): Root node of the hierarchy.
+        symbol_name (SymbolName): Full symbol name to find scope for.
+        create_missing_namespaces (bool, optional): Set to True to create missing
+            namespaces while traversing the hierarchy. Defaults to True.
+
+    Raises:
+        ScopeNotFoundError: If direct parent for the node referred by `symbol_name`
+            can't be found e.g. one of classes doesn't exist.
+
+    Returns:
+        Union[NamespaceNode, ClassNode]: Direct parent for the node referred by
+            `symbol_name`.
+
+    >>> root = NamespaceNode('cv')
+    >>> algorithm_node = root.add_class('Algorithm')
+    >>> find_scope(root, SymbolName(('cv', ), ('Algorithm',), 'Params')) == algorithm_node
+    True
+
+    >>> root = NamespaceNode('cv')
+    >>> scope = find_scope(root, SymbolName(('cv', 'gapi', 'detail'), (), 'function'))
+    >>> scope.full_export_name
+    'cv.gapi.detail'
+
+    >>> root = NamespaceNode('cv')
+    >>> scope = find_scope(root, SymbolName(('cv', 'gapi'), ('GOpaque',), 'function'))
+    Traceback (most recent call last):
+    ...
+    ast_utils.ScopeNotFoundError: Can't find a scope for 'function', with \
+'(namespace="cv::gapi", classes="GOpaque", name="function")', \
+because 'GOpaque' class is not registered yet
+    """
+    assert isinstance(root, NamespaceNode), \
+        'Wrong hierarchy root type: {}'.format(type(root))
+
     assert symbol_name.namespaces[0] == root.name, \
         "Trying to find scope for '{}' with root namespace different from: '{}'".format(
             symbol_name, root.name
@@ -85,7 +152,7 @@ def find_class_node(root: NamespaceNode, full_class_name: str,
 
 
 def create_function_node_in_scope(scope: Union[NamespaceNode, ClassNode],
-                                  func_info):
+                                  func_info) -> FunctionNode:
     def prepare_overload_arguments_and_return_type(variant):
         arguments = []  # type: list[FunctionNode.Arg]
         # Enumerate is requried, because `argno` in `variant.py_arglist`
@@ -232,3 +299,49 @@ def resolve_enum_scopes(root: NamespaceNode,
         else:
             scope = find_scope(root, symbol_name)
         enum_node.parent = scope
+
+
+def get_enclosing_namespace(node: ASTNode) -> NamespaceNode:
+    """Traverses up nodes hierarchy to find closest enclosing namespace of the
+    passed node
+
+    Args:
+        node (ASTNode): Node to find a namespace for.
+
+    Returns:
+        NamespaceNode: Closest enclosing namespace of the provided node.
+
+    Raises:
+        AssertionError: if nodes hierarchy missing a namespace node.
+
+    >>> root = NamespaceNode('cv')
+    >>> feature_class = root.add_class("Feature")
+    >>> get_enclosing_namespace(feature_class) == root
+    True
+
+    >>> root = NamespaceNode('cv')
+    >>> feature_class = root.add_class("Feature")
+    >>> feature_params_class = feature_class.add_class("Params")
+    >>> serialize_params_func = feature_params_class.add_function("serialize")
+    >>> get_enclosing_namespace(serialize_params_func) == root
+    True
+
+    >>> root = NamespaceNode('cv')
+    >>> detail_ns = root.add_namespace('detail')
+    >>> flags_enum = detail_ns.add_enumeration('Flags')
+    >>> get_enclosing_namespace(flags_enum) == detail_ns
+    True
+    """
+    parent_node = node.parent
+    while not isinstance(parent_node, NamespaceNode):
+        assert parent_node is not None, \
+            "Can't find enclosing namespace for '{}' known as: '{}'".format(
+                node.full_export_name, node.native_name
+            )
+        parent_node = parent_node.parent
+    return parent_node
+
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()

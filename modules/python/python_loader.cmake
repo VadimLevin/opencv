@@ -45,12 +45,6 @@ foreach(fname ${PYTHON_LOADER_FILES})
   endif()
 endforeach()
 
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E touch "py.typed"
-    WORKING_DIRECTORY "${__loader_path}/cv2"
-)
-
-
 if(WIN32)
   if(CMAKE_GENERATOR MATCHES "Visual Studio")
     list(APPEND CMAKE_PYTHON_BINARIES_PATH "'${EXECUTABLE_OUTPUT_PATH}/Release'")  # TODO: CMAKE_BUILD_TYPE is not defined

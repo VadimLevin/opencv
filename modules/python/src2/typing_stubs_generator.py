@@ -6,7 +6,7 @@ if sys.version_info >= (3, 6):
     from pathlib import Path
 
     from typing_stubs_generation import (
-        generate_typing_module,
+        generate_typing_stubs,
         NamespaceNode,
         EnumerationNode,
         SymbolName,
@@ -56,7 +56,7 @@ if sys.version_info >= (3, 6):
         def generate(self, output_path):
             # type: (str) -> None
             resolve_enum_scopes(self.cv_root, self.exported_enums)
-            generate_typing_module(self.cv_root, Path(output_path))
+            generate_typing_stubs(self.cv_root, Path(output_path))
 
 else:
     class ClassNode:

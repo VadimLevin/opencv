@@ -1,5 +1,4 @@
-from typing import (Type, Iterable, cast, Sequence, NamedTuple,
-                    Optional, Tuple, Dict)
+from typing import Type, Sequence, NamedTuple, Optional, Tuple, Dict
 import itertools
 
 import weakref
@@ -22,15 +21,23 @@ class ClassProperty(NamedTuple):
     def typename(self) -> str:
         return self.type_node.full_typename
 
-    def resolve_type_nodes(self, root: ASTNode):
+    def resolve_type_nodes(self, root: ASTNode) -> None:
         try:
             self.type_node.resolve(root)
-        except Exception as e:
+        except TypeResolutionError as e:
             raise TypeResolutionError(
-                "Failed to resolve '{}' property".format(self.name)
+                'Failed to resolve "{}" property'.format(self.name)
             ) from e
 
     def relative_typename(self, root: str) -> Optional[str]:
+        """Typename relative to the passed AST root.
+
+        Args:
+            root (str): Full export name
+
+        Returns:
+            Optional[str]: _description_
+        """
         return self.type_node.relative_typename(root)
 
 
@@ -54,13 +61,6 @@ class ClassNode(ASTNode):
     @property
     def node_type(self) -> ASTNodeType:
         return ASTNodeType.Class
-
-    @property
-    def dependencies(self) -> Iterable[ASTNode]:
-        return itertools.chain(
-            cast(Iterable[ASTNode], self.bases),
-            *map(lambda func: func.dependencies, self.functions.values())
-        )
 
     @property
     def classes(self) -> Dict[str, "ClassNode"]:
@@ -107,10 +107,10 @@ class ClassNode(ASTNode):
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
 
-    def add_base(self, base_class_node: "ClassNode"):
+    def add_base(self, base_class_node: "ClassNode") -> None:
         self.bases.append(weakref.proxy(base_class_node))
 
-    def resolve_type_nodes(self, root: ASTNode):
+    def resolve_type_nodes(self, root: ASTNode) -> None:
         errors = []
         for child in itertools.chain(self.functions.values(),
                                      self.classes.values(),

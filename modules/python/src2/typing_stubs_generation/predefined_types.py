@@ -4,7 +4,19 @@ from .nodes.type_node import (
     TupleTypeNode, UnionTypeNode, AnyTypeNode
 )
 
-
+# Set of predefined types used to cover cases when library doesn't
+# directly exports a type and equivalent one should be used instead.
+# Example: Instead of C++ `cv::Rect(1, 1, 5, 6)` in Python any sequence type
+# with length 4 can be used: tuple `(1, 1, 5, 6)` or list `[1, 1, 5, 6]`.
+# Predefined type might be:
+#   - alias - defines a Python synonym for a native type name.
+#     Example: `cv::Rect` and `cv::Size` are both `Sequence[int]` in Python, but
+#     with different length constraints (4 and 2 accordingly).
+#   - direct substitution - just a plain type replacement without any credits to
+#     native type. Example:
+#       * `std::vector<uchar>` is `np.ndarray` with `dtype == np.uint8` in Python
+#       * `double` is a Python `float`
+#       * `std::string` is a Python `str`
 _PREDEFINED_TYPES = (
     PrimitiveTypeNode.int_("int"),
     PrimitiveTypeNode.int_("uchar"),
@@ -147,14 +159,14 @@ _PREDEFINED_TYPES = (
     SequenceTypeNode("GOptRunArgs", AliasRefTypeNode("GOptRunArg")),
     AliasTypeNode.callable_(
         "detail_ExtractArgsCallback",
-        argument_type=SequenceTypeNode("GTypesInfo", AliasRefTypeNode("GTypeInfo")),
-        return_type=SequenceTypeNode("GRunArgs", AliasRefTypeNode("GRunArg")),
+        arg_types=SequenceTypeNode("GTypesInfo", AliasRefTypeNode("GTypeInfo")),
+        ret_type=SequenceTypeNode("GRunArgs", AliasRefTypeNode("GRunArg")),
         export_name="ExtractArgsCallback"
     ),
     AliasTypeNode.callable_(
         "detail_ExtractMetaCallback",
-        argument_type=SequenceTypeNode("GTypesInfo", AliasRefTypeNode("GTypeInfo")),
-        return_type=SequenceTypeNode("GMetaArgs", AliasRefTypeNode("GMetaArg")),
+        arg_types=SequenceTypeNode("GTypesInfo", AliasRefTypeNode("GTypeInfo")),
+        ret_type=SequenceTypeNode("GMetaArgs", AliasRefTypeNode("GMetaArg")),
         export_name="ExtractMetaCallback"
     ),
     AliasTypeNode.class_("LayerId", "DictValue"),

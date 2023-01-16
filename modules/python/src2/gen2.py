@@ -1306,6 +1306,7 @@ class PythonWrapperGenerator(object):
 
         # All symbols are collected, generating typing stubs
         self.typing_stubs_generator.generate(output_path)
+
         # That's it. Now save all the files
         self.save(output_path, "pyopencv_generated_include.h", self.code_include)
         self.save(output_path, "pyopencv_generated_funcs.h", self.code_funcs)

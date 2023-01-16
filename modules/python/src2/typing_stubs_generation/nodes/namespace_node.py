@@ -23,13 +23,6 @@ class NamespaceNode(ASTNode):
                 EnumerationNode, ConstantNode)
 
     @property
-    def dependencies(self) -> Iterable[ASTNode]:
-        return itertools.chain(*(node.dependencies for node in itertools.chain(
-            self.classes.values(),
-            self.functions.values()
-        )))
-
-    @property
     def namespaces(self) -> Dict[str, "NamespaceNode"]:
         return self._children[NamespaceNode]
 
@@ -69,7 +62,7 @@ class NamespaceNode(ASTNode):
     def add_constant(self, name: str, value: str) -> ConstantNode:
         return self._add_child(ConstantNode, name, value=value)
 
-    def resolve_type_nodes(self, root: Optional[ASTNode] = None):
+    def resolve_type_nodes(self, root: Optional[ASTNode] = None) -> None:
         for child in itertools.chain(self.functions.values(),
                                      self.classes.values(),
                                      self.namespaces.values()):

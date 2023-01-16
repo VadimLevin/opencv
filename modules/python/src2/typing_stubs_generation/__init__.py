@@ -31,4 +31,4 @@ from .ast_utils import (
     resolve_enum_scopes
 )
 
-from .generation import generate_typing_module
+from .generation import generate_typing_stubs

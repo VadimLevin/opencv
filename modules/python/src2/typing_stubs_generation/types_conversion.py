@@ -106,7 +106,7 @@ def get_template_instantiation_type(typename: str) -> str:
 
 def normalize_ctype_name(typename: str) -> str:
     """Normalizes C++ name by removing unnecessary namespace prefixes and possible
-    pointer/reference qualification
+    reference qualification. '::' are replaced with '_'.
 
     Args:
         typename (str): Name of the C++ type for normalization
@@ -115,11 +115,9 @@ def normalize_ctype_name(typename: str) -> str:
         str: Normalized C++ type name.
 
     >>> normalize_ctype_name("std::vector<cv::Point2f>&")
-    'vector<cv::Point2f>'
-    >>> normalize_ctype_name("Ptr<AKAZE>")
-    'AKAZE'
+    'vector<cv_Point2f>'
     >>> normalize_ctype_name("AKAZE::DescriptorType")
-    'AKAZE::DescriptorType'
+    'AKAZE_DescriptorType'
     >>> normalize_ctype_name("std::vector<Mat>")
     'vector<Mat>'
     >>> normalize_ctype_name("std::string")
@@ -148,8 +146,8 @@ def is_pointer_type(typename: str) -> bool:
 
 
 def _is_template_instantiation(typename: str) -> bool:
-    """Fast but unreliable check whenever provided typename is a template
-    instantiation
+    """Fast, but unreliable check whenever provided typename is a template
+    instantiation.
 
     Args:
         typename (str): typename to check against template instantiation.
@@ -166,25 +164,46 @@ def _is_template_instantiation(typename: str) -> bool:
     return False
 
 
-def convert_template_arguments_to_pytypes_arguments(template_args_str: str) \
+def create_type_nodes_from_template_arguments(template_args_str: str) \
         -> List[TypeNode]:
-    pytypes = []
-    # If template arguments contains types that are also templates
-    # - replace it with format placeholder and than reconstruct original type.
-    # It covers cases when inner template types have several template params.
-    # e.g. std::tuple<std::variant<int, Point<int>, int, std::vector<int>>
+    """Creates a list of type nodes corresponding to the argument types
+    used for template instantiation.
+    This method correctly addresses the situation when arguments of the input
+    template are also templates.
+    Example:
+    if `create_type_node` is called with
+    `std::tuple<std::variant<int, Point2i>, int, std::vector<int>>`
+    this function will be called with
+    `std::variant<int, Point<int>>, int, std::vector<int>`
+    that produces the following order of types resolution
+                                    `std::variant` ~ `Union`
+    `std::variant<int, Point2i>` -> `int`          ~ `int` -> `Union[int, Point2i]`
+                                    `Point2i`      ~ `Point2i`
+    `int` -> `int`
+    `std::vector<int>` -> `std::vector` ~ `Sequence` -> `Sequence[int]`
+                                  `int` ~ `int`
+
+    Returns:
+        List[TypeNode]: set of type nodes used for template instantiation.
+        List is empty if input string doesn't contain template instantiation.
+    """
+
+    type_nodes = []
     template_args_str, templated_args_types = replace_template_parameters_with_placeholders(
         template_args_str
     )
     template_index = 0
+    # For each template argument
     for template_arg in template_args_str.split(","):
         template_arg = template_arg.strip()
-        # Check if this arg requires type substitution
+        # Check if argument requires type substitution
         if _is_template_instantiation(template_arg):
+            # Reconstruct the original type
             template_arg = template_arg.format(templated_args_types[template_index])
             template_index += 1
-        pytypes.append(create_type_node(template_arg))
-    return pytypes
+        # create corresponding type node
+        type_nodes.append(create_type_node(template_arg))
+    return type_nodes
 
 
 def create_type_node(typename: str,
@@ -225,7 +244,7 @@ def create_type_node(typename: str,
         variant_types = get_template_instantiation_type(typename)
         return UnionTypeNode(
             original_ctype_name,
-            items=convert_template_arguments_to_pytypes_arguments(variant_types)
+            items=create_type_nodes_from_template_arguments(variant_types)
         )
 
     if is_pointer_type(typename):
@@ -242,7 +261,7 @@ def create_type_node(typename: str,
         return create_type_node(typename.split("_", maxsplit=1)[-1],
                                 original_ctype_name)
 
-    # if typename refers to a sequence type
+    # if typename refers to a sequence type e.g. vector<int>
     if is_sequence_type(typename):
         # Recursively convert sequence element type
         if _is_template_instantiation(typename):
@@ -256,13 +275,16 @@ def create_type_node(typename: str,
             inner_sequence_type = create_type_node(typename.split("_", 1)[-1])
         return SequenceTypeNode(original_ctype_name, inner_sequence_type)
 
+    # If typename refers to a heterogeneous container
+    # (can contain elements of different types)
     if is_tuple_type(typename):
         tuple_types = get_template_instantiation_type(typename)
         return TupleTypeNode(
             original_ctype_name,
-            items=convert_template_arguments_to_pytypes_arguments(tuple_types)
+            items=create_type_nodes_from_template_arguments(tuple_types)
         )
-
+    # If everything else is False, it means that input typename refers to a
+    # class or enum of the library.
     return ASTNodeTypeNode(original_ctype_name, typename)
 
 

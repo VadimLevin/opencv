@@ -278,6 +278,26 @@ def create_class_node(root: NamespaceNode, class_info,
 
 def resolve_enum_scopes(root: NamespaceNode,
                         enums: Dict[SymbolName, EnumerationNode]):
+    """Attaches all enumeration nodes to the appropriate classes and modules
+
+    If classes containing enumeration can't be found in the AST - they will
+    be created and marked as not exportable. This behavior is required to cover
+    cases, when enumeration is defined in base class, but only its derivatives
+    are used. Example:
+        ```cpp
+        class CV_EXPORTS TermCriteria {
+        public:
+        enum Type { /* ... */ };
+        // ...
+        };
+        ```
+
+    Args:
+        root (NamespaceNode): root of the reconstructed AST
+        enums (Dict[SymbolName, EnumerationNode]): Mapping between enumerations
+            symbol names and corresponding nodes without parents.
+    """
+
     for symbol_name, enum_node in enums.items():
         if symbol_name.classes:
             try:
@@ -294,6 +314,7 @@ def resolve_enum_scopes(root: NamespaceNode,
                     if class_name in scope.classes:
                         continue
                     class_node = scope.add_class(class_name)
+                    print(class_name)
                     class_node.is_exported = False
                 scope = find_scope(root, symbol_name)
         else:

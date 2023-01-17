@@ -1029,6 +1029,9 @@ class PythonWrapperGenerator(object):
 
             self.add_const(decl[0].replace("const ", "").strip(), decl)
 
+        # Extra enumerations tracking is required to generate stubs for
+        # all enumerations, including <unnamed> once, otherwise they
+        # will be forgiven
         self.typing_stubs_generator.add_enum(enumeration_name, is_scoped_enum,
                                              enum_entries)
 
@@ -1082,6 +1085,9 @@ class PythonWrapperGenerator(object):
                 w_classes.append(w_classname)
             g_wname = "_".join(w_classes+[name])
             func_map = self.namespaces.setdefault(namespace_str, Namespace()).funcs
+            # Static functions should be called using class names, not like
+            # module-level functions, so first step is to remove them from
+            # type hints.
             self.typing_stubs_generator.add_ignored_function_name(g_name)
             # Exports static function with internal name (backward compatibility)
             func = func_map.setdefault(g_name, FuncInfo("", g_name, cname, isconstructor, namespace_str, False))
@@ -1256,11 +1262,16 @@ class PythonWrapperGenerator(object):
             def _registerType(classinfo):
                 if classinfo.decl_idx in published_types:
                     #print(classinfo.decl_idx, classinfo.name, ' - already published')
+                    # If class already registered it means that there is
+                    # a correponding node in the AST. This check is partically
+                    # useful for base classes.
                     return self.typing_stubs_generator.find_class_node(
                         classinfo, self.parser.namespaces
                     )
                 published_types.add(classinfo.decl_idx)
 
+                # Registering a class means creation of the AST node from the
+                # given class information
                 class_node = self.typing_stubs_generator.create_class_node(
                     classinfo, self.parser.namespaces
                 )
@@ -1286,6 +1297,7 @@ class PythonWrapperGenerator(object):
                     continue
                 code = func.gen_code(self)
                 self.code_funcs.write(code)
+                # If function is not ignored - create an AST node for it
                 if name not in self.typing_stubs_generator.type_hints_ignored_functions:
                     self.typing_stubs_generator.create_function_node(func)
 
@@ -1304,7 +1316,8 @@ class PythonWrapperGenerator(object):
         for name, constinfo in constlist:
             self.gen_const_reg(constinfo)
 
-        # All symbols are collected, generating typing stubs
+        # All symbols are collected and AST is reconstructed, generating
+        # typing stubs...
         self.typing_stubs_generator.generate(output_path)
 
         # That's it. Now save all the files

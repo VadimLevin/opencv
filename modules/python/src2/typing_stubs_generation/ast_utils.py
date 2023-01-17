@@ -314,7 +314,6 @@ def resolve_enum_scopes(root: NamespaceNode,
                     if class_name in scope.classes:
                         continue
                     class_node = scope.add_class(class_name)
-                    print(class_name)
                     class_node.is_exported = False
                 scope = find_scope(root, symbol_name)
         else:

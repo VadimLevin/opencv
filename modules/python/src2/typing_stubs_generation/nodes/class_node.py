@@ -42,6 +42,14 @@ class ClassProperty(NamedTuple):
 
 
 class ClassNode(ASTNode):
+    """Represents a C++ class that is also a class in Python.
+
+    ClassNode can have functions (methods), enumerations, constants and other
+    classes as its children nodes.
+
+    Class properties are not treated as a part of AST for simplicity and have
+    extra handling if required.
+    """
     def __init__(self, name: str, parent: Optional[ASTNode] = None,
                  export_name: Optional[str] = None,
                  bases: Sequence["weakref.ProxyType[ClassNode]"] = (),
@@ -87,6 +95,36 @@ class ClassNode(ASTNode):
     def add_function(self, name: str, arguments: Sequence[FunctionNode.Arg] = (),
                      return_type: Optional[FunctionNode.RetType] = None,
                      is_static: bool = False) -> FunctionNode:
+        """Adds function as a child node of a class.
+
+        Function is classified in 3 categories:
+            1. Instance method.
+               If function is an instance method then `self` argument is
+               inserted at the beginning of its arguments list.
+
+            2. Class method (or factory method)
+               If `is_static` flag is `True` and typename of the function
+               return type matches name of the class then function is treated
+               as class method.
+
+               If function is a class method then `cls` argument is inserted
+               at the beginning of its arguments list.
+
+            3. Static method
+
+        Args:
+            name (str): Name of the function.
+            arguments (Sequence[FunctionNode.Arg], optional): Function arguments.
+                Defaults to ().
+            return_type (Optional[FunctionNode.RetType], optional): Function
+                return type. Defaults to None.
+            is_static (bool, optional): Flag whenever function is static or not.
+                Defaults to False.
+
+        Returns:
+            FunctionNode: created function node.
+        """
+
         arguments = list(arguments)
         if return_type is not None:
             is_classmethod = return_type.typename == self.name
@@ -111,10 +149,22 @@ class ClassNode(ASTNode):
         self.bases.append(weakref.proxy(base_class_node))
 
     def resolve_type_nodes(self, root: ASTNode) -> None:
+        """Resolves type nodes for all inner-classes, methods and properties
+        in 2 steps:
+            1. Resolve against `self` as a tree root
+            2. Resolve against `root` as a tree root
+        Type resolution errors are postponed until all children nodes are
+        examined.
+
+        Args:
+            root (Optional[ASTNode], optional): Root of the AST sub-tree.
+                Defaults to None.
+        """
+
         errors = []
-        for child in itertools.chain(self.functions.values(),
-                                     self.classes.values(),
-                                     self.properties):
+        for child in itertools.chain(self.properties,
+                                     self.functions.values(),
+                                     self.classes.values()):
             try:
                 try:
                     # Give priority to narrowest scope (class-level scope in this case)

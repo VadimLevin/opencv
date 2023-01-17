@@ -1,8 +1,10 @@
-__all__ = ("generate_typing_stubs", "generate_typing_module", )
+__all__ = ("generate_typing_stubs", )
 
 from io import StringIO
 from pathlib import Path
-from typing import Generator, Type, Callable, NamedTuple, Union, Set, Dict
+from typing import (Generator, Type, Callable, NamedTuple, Union, Set, Dict,
+                    Collection)
+import warnings
 
 from .ast_utils import get_enclosing_namespace
 
@@ -16,11 +18,32 @@ from .nodes.type_node import (TypeNode, AliasTypeNode, AliasRefTypeNode,
 
 
 def generate_typing_stubs(root: NamespaceNode, output_path: Path):
-    """_summary_
+    """Generates typing stubs for the AST with root `root` and outputs
+    created files tree to directory pointed by `output_path`.
+
+    Stubs generation consist from 4 steps:
+        1. Reconstruction of AST tree for header parser output.
+        2. "Lazy" AST nodes resolution (type nodes used as function arguments
+            and return types). Resolution procedure attaches every "lazy"
+            AST node to the corresponding node in the AST created during step 1.
+        3. Generation of the typing module content. Typing module doesn't exist
+           in library code, but is essential place to define aliases widely used
+           in stub files.
+        4. Generation of typing stubs from the reconstructed AST.
+           Every namespace corresponds to a Python module with the same name.
+           Generation procedure is recursive repetition of the following steps
+           for each namespace (module):
+                - Collect and write required imports for the module
+                - Write all module constants stubs
+                - Write all module enumerations stubs
+                - Write all module classes stubs, preserving correct declaration
+                  order, when base classes go before their derivatives.
+                - Write all module functions stubs
+                - Repeat steps above for nested namespaces
 
     Args:
-        root (NamespaceNode): _description_
-        output_path (Path): _description_
+        root (NamespaceNode): Root namespace node of the library AST.
+        output_path (Path): Path to output directory.
     """
     # Most of the time type nodes miss their full name (especially function
     # arguments and return types), so resolution should start from the narrowest
@@ -54,15 +77,19 @@ def _generate_typing_stubs(root: NamespaceNode, output_root: Path):
     output_path = Path(output_root) / root.export_name
     output_path.mkdir(parents=True, exist_ok=True)
 
+    # Collect all imports required for module items declaration
     required_imports = _collect_required_imports(root)
 
     output_stream = StringIO()
+
+    # Write required imports at the top of file
     _write_required_imports(required_imports, output_stream)
 
+    # Write constants section, because constants don't impose any dependencies
     _generate_section_stub(StubSection("# Constants", ConstantNode), root,
                            output_stream, 0)
-    # Special handling for enumerations...
-    # Generate all enums from the module level
+    # NOTE: Enumerations require special handling, because all enumeration
+    # constants are exposed as module attributes
     has_enums = _generate_section_stub(StubSection("# Enumerations", EnumerationNode),
                                        root, output_stream, 0)
     # Collect all enums from class level and export them to module level
@@ -73,9 +100,12 @@ def _generate_typing_stubs(root: NamespaceNode, output_root: Path):
     if has_enums:
         output_stream.write("\n")
 
+    # Write the rest of module content - classes and functions
     for section in STUB_SECTIONS:
         _generate_section_stub(section, root, output_stream, 0)
+    # Dump content to the output file
     (output_path / "__init__.pyi").write_text(output_stream.getvalue())
+    # Process nested namespaces
     for ns in root.namespaces.values():
         generate_typing_stubs(ns, output_path)
 
@@ -192,7 +222,7 @@ def _generate_class_stub(class_node: ClassNode, output_stream: StringIO,
     if len(class_node.bases) > 0:
         bases = []
         for base in class_node.bases:
-            base_module = get_enclosing_namespace(base)
+            base_module = get_enclosing_namespace(base)  # type: ignore
             if base_module != class_module:
                 bases.append(base.full_export_name)
             else:
@@ -354,6 +384,11 @@ def _generate_function_stub(function_node: FunctionNode,
 
     # Function is a stub without any arguments information
     if not function_node.overloads:
+        warnings.warn(
+            'Function node "{}" exported as "{}" has no overloads'.format(
+                function_node.full_name, function_node.full_export_name
+            )
+        )
         return
 
     decorators = []
@@ -430,10 +465,12 @@ def _generate_enums_from_classes_tree(class_node: ClassNode,
     ```
 
     Args:
-        class_node (ClassNode): _description_
-        output_stream (StringIO): _description_
-        indent (int, optional): _description_. Defaults to 0.
-        class_name_prefix (str, optional): _description_. Defaults to "".
+        class_node (ClassNode): Class node to generate enumerations stubs for.
+        output_stream (StringIO): Output stream for enumerations stub.
+        indent (int, optional): Indent used for each line written to
+            `output_stream`. Defaults to 0.
+        class_name_prefix (str, optional): Prefix used for enumerations and
+            constants names. Defaults to "".
 
     Returns:
         bool: `True` if classes tree declares at least 1 enum, `False` otherwise.
@@ -545,13 +582,14 @@ def _collect_required_imports(root: NamespaceNode) -> Set[str]:
     return required_imports
 
 
-def _write_required_imports(required_imports: Set[str], output_stream: StringIO):
+def _write_required_imports(required_imports: Collection[str],
+                            output_stream: StringIO) -> None:
     """Writes all entries of `required_imports` to the `output_stream`.
 
     Args:
-        required_imports (Set[str]): Collection of imports to write into the
-            output stream
-        output_stream (StringIO): Output stream
+        required_imports (Collection[str]): Imports to write into the output
+            stream.
+        output_stream (StringIO): Output stream for import statements.
     """
 
     for required_import in sorted(required_imports):

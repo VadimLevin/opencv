@@ -106,7 +106,9 @@ def get_template_instantiation_type(typename: str) -> str:
 
 def normalize_ctype_name(typename: str) -> str:
     """Normalizes C++ name by removing unnecessary namespace prefixes and possible
-    reference qualification. '::' are replaced with '_'.
+    pointer/reference qualification. '::' are replaced with '_'.
+
+    NOTE: Pointer decay for 'void*' is not performed.
 
     Args:
         typename (str): Name of the C++ type for normalization
@@ -114,14 +116,20 @@ def normalize_ctype_name(typename: str) -> str:
     Returns:
         str: Normalized C++ type name.
 
-    >>> normalize_ctype_name("std::vector<cv::Point2f>&")
+    >>> normalize_ctype_name('std::vector<cv::Point2f>&')
     'vector<cv_Point2f>'
-    >>> normalize_ctype_name("AKAZE::DescriptorType")
+    >>> normalize_ctype_name('AKAZE::DescriptorType')
     'AKAZE_DescriptorType'
-    >>> normalize_ctype_name("std::vector<Mat>")
+    >>> normalize_ctype_name('std::vector<Mat>')
     'vector<Mat>'
-    >>> normalize_ctype_name("std::string")
+    >>> normalize_ctype_name('std::string')
     'string'
+    >>> normalize_ctype_name('void*')  # keep void* as is - special case
+    'void*'
+    >>> normalize_ctype_name('Ptr<AKAZE>')
+    'AKAZE'
+    >>> normalize_ctype_name('Algorithm_Ptr')
+    'Algorithm'
     """
     for prefix_to_remove in ("cv", "std"):
         if typename.startswith(prefix_to_remove):
@@ -129,7 +137,33 @@ def normalize_ctype_name(typename: str) -> str:
     typename = typename.replace("::", "_").lstrip("_")
     if typename.endswith('&'):
         typename = typename[:-1]
-    return typename.strip()
+    typename = typename.strip()
+
+    if typename == 'void*':
+        return typename
+
+    if is_pointer_type(typename):
+        # Case for "type*", "type_Ptr", "typePtr"
+        for suffix in ("*", "_Ptr", "Ptr"):
+            if typename.endswith(suffix):
+                return typename[:-len(suffix)]
+        # Case Ptr<Type>
+        if _is_template_instantiation(typename):
+            return normalize_ctype_name(
+                get_template_instantiation_type(typename)
+            )
+        # Case Ptr_Type
+        return typename.split("_", maxsplit=1)[-1]
+
+    # special normalization for several G-API Types
+    if typename.startswith("GArray_") or typename.startswith("GArray<"):
+        return "GArrayT"
+    if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
+        return "GOpaqueT"
+    if typename == "GStreamerPipeline" or typename.startswith("GStreamerSource"):
+        return "gst_" + typename
+
+    return typename
 
 
 def is_tuple_type(typename: str) -> bool:
@@ -143,6 +177,10 @@ def is_sequence_type(typename: str) -> bool:
 def is_pointer_type(typename: str) -> bool:
     return typename.endswith("Ptr") or typename.endswith("*") \
         or typename.startswith("Ptr")
+
+
+def is_union_type(typename: str) -> bool:
+    return typename.startswith('util_variant')
 
 
 def _is_template_instantiation(typename: str) -> bool:
@@ -208,13 +246,36 @@ def create_type_nodes_from_template_arguments(template_args_str: str) \
 
 def create_type_node(typename: str,
                      original_ctype_name: Optional[str] = None) -> TypeNode:
-    """Converts C++ type name to corresponding Python type
+    """Converts C++ type name to appropriate type used in Python library API.
+
+    Conversion procedure:
+        1. Normalize typename: remove redundant prefixes, unify name
+           components delimiters, remove reference qualifications.
+        2. Check whenever typename has a known predefined conversion or exported
+           as alias e.g.
+            - C++ `double` -> Python `float`
+            - C++ `cv::Rect` -> Python `Sequence[int]`
+            - C++ `std::vector<char>` -> Python `np.ndarray`
+           return TypeNode corresponding to the appropriate type.
+        3. Check whenever typename is a container of types e.g. variant,
+           sequence or tuple. If so, select appropriate Python container type
+           and perform arguments conversion.
+        4. Create a type node corresponding to the AST node passing normalized
+           typename as its name.
 
     Args:
         typename (str): C++ type name to convert.
+        original_ctype_name (Optional[str]): Original C++ name of the type.
+            `original_ctype_name` == `typename` if provided argument is None.
+            Default is None.
 
     Returns:
         TypeNode: type node that wraps C++ type exposed to Python
+
+    >>> create_type_node('Ptr<AKAZE>').typename
+    'AKAZE'
+    >>> create_type_node('std::vector<Ptr<cv::Algorithm>>').typename
+    'typing.Sequence[Algorithm]'
     """
 
     if original_ctype_name is None:
@@ -233,33 +294,12 @@ def create_type_node(typename: str,
         if alias.typename == typename:
             return alias
 
-    # explicit handling of special G-Api Types
-    if typename.startswith("GArray_") or typename.startswith("GArray<"):
-        return ASTNodeTypeNode("GArrayT")
-    if typename.startswith("GOpaque_") or typename.startswith("GOpaque<"):
-        return ASTNodeTypeNode("GOpaqueT")
-    if typename == "GStreamerPipeline" or typename.startswith("GStreamerSource"):
-        return ASTNodeTypeNode("gst_" + typename)
-    if typename.startswith("util_variant"):
-        variant_types = get_template_instantiation_type(typename)
+    if is_union_type(typename):
+        union_types = get_template_instantiation_type(typename)
         return UnionTypeNode(
             original_ctype_name,
-            items=create_type_nodes_from_template_arguments(variant_types)
+            items=create_type_nodes_from_template_arguments(union_types)
         )
-
-    if is_pointer_type(typename):
-        # Case for "type*", "type_Ptr", "typePtr"
-        for suffix in ("*", "_Ptr", "Ptr"):
-            if typename.endswith(suffix):
-                return create_type_node(typename[:-len(suffix)],
-                                        original_ctype_name)
-        # Case Ptr<Type>
-        if _is_template_instantiation(typename):
-            return create_type_node(get_template_instantiation_type(typename),
-                                    original_ctype_name)
-        # Case Ptr_Type
-        return create_type_node(typename.split("_", maxsplit=1)[-1],
-                                original_ctype_name)
 
     # if typename refers to a sequence type e.g. vector<int>
     if is_sequence_type(typename):

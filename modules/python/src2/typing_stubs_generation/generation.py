@@ -252,9 +252,10 @@ def _generate_constant_stub(constant_node: ConstantNode,
     """
 
     output_stream.write(
-        "{indent}{prefix}{name}: int\n".format(
+        "{indent}{prefix}{name}: {value_type}\n".format(
             prefix=extra_export_prefix,
             name=constant_node.export_name,
+            value_type=constant_node.value_type,
             indent=" " * indent
         )
     )
@@ -350,6 +351,10 @@ def _generate_function_stub(function_node: FunctionNode,
         indent (int, optional): Indent used for each line written to
             `output_stream`. Defaults to 0.
     """
+
+    # Function is a stub without any arguments information
+    if not function_node.overloads:
+        return
 
     decorators = []
     if function_node.is_classmethod:

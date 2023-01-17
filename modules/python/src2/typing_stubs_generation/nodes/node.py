@@ -169,6 +169,8 @@ class ASTNode:
         - Node can have children of the provided type
         - Node doesn't have child with the same name
 
+        NOTE: Shouldn't be used directly by a user.
+
         Args:
             child_type (Type[ASTNodeSubtype]): Type of the child to create.
             name (str): Name of the child.
@@ -177,8 +179,6 @@ class ASTNode:
 
         Returns:
             ASTNodeSubtype: Created ASTNode
-
-        Note: Shouldn't be used directly by a user.
         """
         self.__check_child_before_add(child_type, name)
         return child_type(name, parent=self, **kwargs)

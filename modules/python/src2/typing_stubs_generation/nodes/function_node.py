@@ -5,6 +5,11 @@ from .type_node import TypeNode, NoneTypeNode, TypeResolutionError
 
 
 class FunctionNode(ASTNode):
+    """Represents a function (or class method) in both C++ and Python.
+
+    This class defines an overload set rather then function itself, because
+    function without overloads is represented as FunctionNode with 1 overload.
+    """
     class Arg(NamedTuple):
         name: str
         type_node: Optional[TypeNode] = None
@@ -40,6 +45,29 @@ class FunctionNode(ASTNode):
                  is_classmethod: bool = False,
                  parent: Optional[ASTNode] = None,
                  export_name: Optional[str] = None) -> None:
+        """Function node initializer
+
+        Args:
+            name (str): Name of the function overload set
+            arguments (Optional[Sequence[FunctionNode.Arg]], optional): Function
+                arguments. If this argument is None, then no overloads are
+                added and node should be treated like a "function stub" rather
+                than function. This might be helpful if there is a knowledge
+                that function with the defined name exists, but information
+                about its interface is not available at that moment.
+                Defaults to None.
+            return_type (Optional[FunctionNode.RetType], optional): Function
+                return type. Defaults to None.
+            is_static (bool, optional): Flag pointing that function is
+                a static method of some class. Defaults to False.
+            is_classmethod (bool, optional): Flag pointing that function is
+                a class method of some class. Defaults to False.
+            parent (Optional[ASTNode], optional): Parent ASTNode of the function.
+                Can be class or namespace. Defaults to None.
+            export_name (Optional[str], optional): Export name of the function.
+                Defaults to None.
+        """
+
         super().__init__(name, parent, export_name)
         self.overloads: List[FunctionNode.Overload] = []
         self.is_static = is_static
@@ -60,6 +88,13 @@ class FunctionNode(ASTNode):
         self.overloads.append(FunctionNode.Overload(arguments, return_type))
 
     def resolve_type_nodes(self, root: ASTNode):
+        """Resolves type nodes in all overloads against `root`
+
+        Type resolution errors are postponed until all type nodes are examined.
+
+        Args:
+            root (ASTNode): Root of AST sub-tree used for type nodes resolution.
+        """
         def has_unresolved_type_node(item) -> bool:
             return item.type_node is not None and not item.type_node.is_resolved
 

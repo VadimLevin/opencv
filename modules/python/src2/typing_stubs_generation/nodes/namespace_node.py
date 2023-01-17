@@ -13,6 +13,11 @@ from .type_node import TypeResolutionError
 
 
 class NamespaceNode(ASTNode):
+    """Represents C++ namespace that treated as module in Python.
+
+    NamespaceNode can have other namespaces, classes, functions, enumerations
+    and global constants as its children nodes.
+    """
     @property
     def node_type(self) -> ASTNodeType:
         return ASTNodeType.Namespace
@@ -63,13 +68,36 @@ class NamespaceNode(ASTNode):
         return self._add_child(ConstantNode, name, value=value)
 
     def resolve_type_nodes(self, root: Optional[ASTNode] = None) -> None:
+        """Resolves type nodes for all children nodes in 2 steps:
+            1. Resolve against `self` as a tree root
+            2. Resolve against `root` as a tree root
+        Type resolution errors are postponed until all children nodes are
+        examined.
+
+        Args:
+            root (Optional[ASTNode], optional): Root of the AST sub-tree.
+                Defaults to None.
+        """
+        errors = []
         for child in itertools.chain(self.functions.values(),
                                      self.classes.values(),
                                      self.namespaces.values()):
             try:
-                child.resolve_type_nodes(self)  # type: ignore
-            except TypeResolutionError:
-                if root is not None:
-                    child.resolve_type_nodes(root)  # type: ignore
-                else:
-                    raise
+                try:
+                    child.resolve_type_nodes(self)  # type: ignore
+                except TypeResolutionError:
+                    if root is not None:
+                        child.resolve_type_nodes(root)  # type: ignore
+                    else:
+                        raise
+            except TypeResolutionError as e:
+                errors.append(str(e))
+        if len(errors) > 0:
+            raise TypeResolutionError(
+                'Failed to resolve "{}" namespace against "{}". '
+                'Errors: {}'.format(
+                    self.full_export_name,
+                    root if root is None else root.full_export_name,
+                    errors
+                )
+            )

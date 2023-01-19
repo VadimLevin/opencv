@@ -34,7 +34,7 @@ if(TARGET gen_opencv_python_source)
   add_dependencies(${the_module} gen_opencv_python_source)
 endif()
 
-if(TARGET copy_opencv_typing_stubs AND ${PYTHON}_VERSION_MAJOR EQUAL 3 AND ${PYTHON}_VERSION_MINOR GREATER_EQUAL 6)
+if(TARGET copy_opencv_typing_stubs AND ${PYTHON}_VERSION_MAJOR EQUAL 3 AND ${PYTHON}_VERSION_MINOR GREATER 5)
   # Python 3.6+
   add_dependencies(${the_module} copy_opencv_typing_stubs)
 endif()

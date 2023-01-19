@@ -115,7 +115,8 @@ class TypeNode(abc.ABC):
 
         Returns:
             str: If module name of the type node doesn't match `module`, then
-                returns `self.typename`, otherwise `self.full_typename`.
+                returns class scopes + `self.typename`, otherwise
+                `self.full_typename`.
         """
         return self.full_typename
 
@@ -477,7 +478,7 @@ class ASTNodeTypeNode(TypeNode):
             module_name = self._module_name
         if module_name != module:
             return self.full_typename
-        return self.typename
+        return self.full_typename[len(module_name) + 1:]
 
 
 class AggregatedTypeNode(TypeNode):

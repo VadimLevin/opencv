@@ -30,11 +30,11 @@ if sys.version_info >= (3, 6):
     import functools
 
     class FailuresWrapper:
-        def __init__(self, *, exceptions_as_warnings = True) -> None:
+        def __init__(self, exceptions_as_warnings=True) -> None:
             self.has_failure = False
             self.exceptions_as_warnings = exceptions_as_warnings
 
-        def wrap_exceptions_as_warnings(self, original_func=None, *,
+        def wrap_exceptions_as_warnings(self, original_func=None,
                                         ret_type_on_failure=None):
             def parametrized_wrapper(func):
                 @functools.wraps(func)
@@ -80,9 +80,7 @@ if sys.version_info >= (3, 6):
                 if self.has_failure and file_path.is_file():
                     file_path.unlink()
 
-
     failures_wrapper = FailuresWrapper(exceptions_as_warnings=True)
-
 
     class ClassNodeStub:
         def add_base(self, base_node):
@@ -132,7 +130,7 @@ if sys.version_info >= (3, 6):
         def generate(self, output_path):
             # type: (Union[str, Path]) -> None
             output_path = Path(output_path)
-            py_typed_path = output_path/ self.cv_root.export_name / 'py.typed'
+            py_typed_path = output_path / self.cv_root.export_name / 'py.typed'
             with failures_wrapper.delete_on_failure(py_typed_path):
                 self._generate(output_path)
 

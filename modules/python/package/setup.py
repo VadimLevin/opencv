@@ -24,7 +24,11 @@ def main():
     long_description = 'Open Source Computer Vision Library Python bindings'  # TODO
 
     root_module_path = os.path.join(SCRIPT_DIR, "cv2")
-    typing_stub_files = collect_module_typing_stub_files(root_module_path)
+    py_typed_path = os.path.join(root_module_path, "py.typed")
+    if os.path.isfile(py_typed_path):
+        typing_stub_files = collect_module_typing_stub_files(root_module_path)
+        if len(typing_stub_files) > 0:
+            typing_stub_files.append(py_typed_path)
 
     setuptools.setup(
         name=package_name,

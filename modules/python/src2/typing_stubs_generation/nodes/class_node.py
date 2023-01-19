@@ -29,16 +29,16 @@ class ClassProperty(NamedTuple):
                 'Failed to resolve "{}" property'.format(self.name)
             ) from e
 
-    def relative_typename(self, root: str) -> Optional[str]:
-        """Typename relative to the passed AST root.
+    def relative_typename(self, full_node_name: str) -> str:
+        """Typename relative to the passed AST node name.
 
         Args:
-            root (str): Full export name
+            full_node_name (str): Full export name of the AST node
 
         Returns:
-            Optional[str]: _description_
+            str: typename relative to the passed AST node name
         """
-        return self.type_node.relative_typename(root)
+        return self.type_node.relative_typename(full_node_name)
 
 
 class ClassNode(ASTNode):

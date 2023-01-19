@@ -9,7 +9,9 @@ import warnings
 
 
 if sys.version_info >= (3, 6):
-    from typing import Dict, Set, Any, Sequence
+    from contextlib import contextmanager
+
+    from typing import Dict, Set, Any, Sequence, Generator, Union
 
     from pathlib import Path
 
@@ -63,7 +65,24 @@ if sys.version_info >= (3, 6):
                 return parametrized_wrapper(original_func)
             return parametrized_wrapper
 
+        @contextmanager
+        def delete_on_failure(self, file_path):
+            # type: (Path) -> Generator[None, None, None]
+            # There is no errors during stubs generation and file doesn't exist
+            if not self.has_failure and not file_path.is_file():
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.touch()
+            try:
+                # continue execution
+                yield
+            finally:
+                # If failure is occurred - delete file if exists
+                if self.has_failure and file_path.is_file():
+                    file_path.unlink()
+
+
     failures_wrapper = FailuresWrapper(exceptions_as_warnings=True)
+
 
     class ClassNodeStub:
         def add_base(self, base_node):
@@ -110,11 +129,19 @@ if sys.version_info >= (3, 6):
             # type: (Any, Sequence[str]) -> ClassNode
             return create_class_node(self.cv_root, class_info, namespaces)
 
-        @failures_wrapper.wrap_exceptions_as_warnings
         def generate(self, output_path):
-            # type: (str) -> None
+            # type: (Union[str, Path]) -> None
+            output_path = Path(output_path)
+            py_typed_path = output_path/ self.cv_root.export_name / 'py.typed'
+            with failures_wrapper.delete_on_failure(py_typed_path):
+                self._generate(output_path)
+
+        @failures_wrapper.wrap_exceptions_as_warnings
+        def _generate(self, output_path):
+            # type: (Path) -> None
             resolve_enum_scopes(self.cv_root, self.exported_enums)
-            generate_typing_stubs(self.cv_root, Path(output_path))
+            generate_typing_stubs(self.cv_root, output_path)
+
 
 else:
     class ClassNode:

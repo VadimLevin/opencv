@@ -67,14 +67,14 @@ def generate_typing_stubs(root: NamespaceNode, output_path: Path):
     #    2. Try to resolve against `cv::detail` - fail
     #    3. Try to resolve against `cv` - success
     # The whole process should fail !only! when all possible scopes are
-    # are checked and at least 1 node is still unresolved.
+    # checked and at least 1 node is still unresolved.
     root.resolve_type_nodes()
     _generate_typing_module(root, output_path)
     _generate_typing_stubs(root, output_path)
 
 
-def _generate_typing_stubs(root: NamespaceNode, output_root: Path):
-    output_path = Path(output_root) / root.export_name
+def _generate_typing_stubs(root: NamespaceNode, output_path: Path):
+    output_path = Path(output_path) / root.export_name
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Collect all imports required for module items declaration
@@ -107,7 +107,7 @@ def _generate_typing_stubs(root: NamespaceNode, output_root: Path):
     (output_path / "__init__.pyi").write_text(output_stream.getvalue())
     # Process nested namespaces
     for ns in root.namespaces.values():
-        generate_typing_stubs(ns, output_path)
+        _generate_typing_stubs(ns, output_path)
 
 
 class StubSection(NamedTuple):

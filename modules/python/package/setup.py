@@ -15,12 +15,6 @@ def collect_module_typing_stub_files(root_module_path):
     return stub_files
 
 
-def create_if_not_exists(file_path):
-    with open(file_path, "a"):
-        pass
-    return file_path
-
-
 def main():
     os.chdir(SCRIPT_DIR)
 
@@ -31,10 +25,6 @@ def main():
 
     root_module_path = os.path.join(SCRIPT_DIR, "cv2")
     typing_stub_files = collect_module_typing_stub_files(root_module_path)
-    if len(typing_stub_files) > 0:
-        typing_stub_files.append(
-            create_if_not_exists(os.path.join(root_module_path, "py.typed"))
-        )
 
     setuptools.setup(
         name=package_name,

@@ -93,9 +93,15 @@ add_custom_target(gen_opencv_python_source DEPENDS ${cv2_generated_files})
 
 add_custom_target(copy_opencv_typing_stubs DEPENDS gen_opencv_python_source)
 
+# Copy all generated stub files to python_loader directory only if
+# generation succeeds, this behvoir can't be achieved with default
+# CMake constructions, because failed generation produces a warning instead of
+# halts on hard error.
 add_custom_command(
   TARGET copy_opencv_typing_stubs
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_BINARY_DIR}/cv2 ${CMAKE_BINARY_DIR}/python_loader/cv2
+  COMMAND ${PYTHON_DEFAULT_EXECUTABLE} ${PYTHON_SOURCE_DIR}/src2/copy_typings_stubs_on_success.py
+          --stubs_dir ${CMAKE_CURRENT_BINARY_DIR}/cv2
+          --output_dir ${CMAKE_BINARY_DIR}/python_loader/cv2
 )
 
 set(cv2_custom_hdr "${CMAKE_CURRENT_BINARY_DIR}/pyopencv_custom_headers.h")

@@ -166,6 +166,8 @@ def create_function_node_in_scope(scope: Union[NamespaceNode, ClassNode],
                 default_value = arg_info.defval
             # If argument is optional and can be None - make its type optional
             if variant.is_arg_optional(i):
+                # NOTE: should UMat be always mandatory for better type hints?
+                # otherwise overload won't be selected e.g. VideoCapture.read()
                 if arg_info.py_outputarg:
                     type_node = OptionalTypeNode(type_node)
                     default_value = "None"
